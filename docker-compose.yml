@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  transport-service:
+    build: ./transport-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./transport-service:/app
+    environment:
+      - PYTHONUNBUFFERED=1
