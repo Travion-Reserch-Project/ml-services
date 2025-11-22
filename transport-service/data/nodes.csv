@@ -1,0 +1,16 @@
+name,region,latitude,longitude,popularity,disruption_flag,description
+Colombo,urban,6.9271,79.8612,1.0,0,Main commercial hub and capital
+Kandy,hill,7.2906,80.6337,0.9,0,Cultural capital in hill country
+Galle,coastal,6.0535,80.2210,0.85,0,Southern coastal city with fort
+Anuradhapura,cultural,8.3114,80.4037,0.75,0,Ancient city with historical sites
+Ella,hill,6.8667,81.0467,0.88,0,Scenic hill station popular with tourists
+Sigiriya,cultural,7.9569,80.7603,0.92,0,Rock fortress UNESCO site
+Dambulla,cultural,7.8731,80.6514,0.70,0,Cave temple complex
+Jaffna,northern,9.6615,80.0255,0.65,0,Northern cultural hub
+Nuwara Eliya,hill,6.9497,80.7891,0.82,0,Tea country and cool climate
+Trincomalee,coastal,8.5874,81.2152,0.78,0,Eastern beaches and naval history
+Negombo,coastal,7.2008,79.8358,0.72,0,Beach resort near airport
+Matara,coastal,5.9549,80.5550,0.68,0,Southern coastal town
+Polonnaruwa,cultural,7.9403,81.0188,0.76,0,Medieval capital ruins
+Batticaloa,coastal,7.7310,81.6747,0.60,0,Eastern coastal city
+Badulla,hill,6.9934,81.0550,0.65,0,Uva province hill town
