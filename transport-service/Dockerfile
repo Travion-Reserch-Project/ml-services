@@ -16,9 +16,9 @@ COPY . .
 RUN useradd -m -u 1001 mluser && chown -R mluser:mluser /app
 USER mluser
 
-EXPOSE 8000
+EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:8001/health || exit 1
 
 CMD ["python", "app.py"]

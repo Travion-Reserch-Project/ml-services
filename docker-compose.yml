@@ -16,50 +16,11 @@ services:
     networks:
       - ml-services-network
 
-  # Accommodation Recommendation Service
-  accommodation-service:
-    build: ./accommodation-service
-    container_name: accommodation-service
-    ports:
-      - "8002:8000"
-    volumes:
-      - ./accommodation-service:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - SERVICE_NAME=accommodation-service
-    restart: unless-stopped
-    networks:
-      - ml-services-network
+  # Virtual Tour Guide Service
 
-  # Attraction Recommendation Service
-  attraction-service:
-    build: ./attraction-service
-    container_name: attraction-service
-    ports:
-      - "8003:8000"
-    volumes:
-      - ./attraction-service:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - SERVICE_NAME=attraction-service
-    restart: unless-stopped
-    networks:
-      - ml-services-network
+  # Risk Prediction Service
 
-  # Itinerary Planning Service
-  itinerary-service:
-    build: ./itinerary-service
-    container_name: itinerary-service
-    ports:
-      - "8004:8000"
-    volumes:
-      - ./itinerary-service:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - SERVICE_NAME=itinerary-service
-    restart: unless-stopped
-    networks:
-      - ml-services-network
+  # Smart UV Assistance Service
 
 networks:
   ml-services-network:
@@ -67,6 +28,3 @@ networks:
 
 volumes:
   transport-data:
-  accommodation-data:
-  attraction-data:
-  itinerary-data:
