@@ -23,19 +23,30 @@ jobs:
         with:
           lfs: true
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/travion-reserch-project/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./transport-service
           push: true
-          tags: ${{ env.REGISTRY }}/travion-reserch-project/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   trigger-deployment:
     name: Trigger Infrastructure Deployment
@@ -43,10 +54,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check if INFRASTRUCTURE_REPO_TOKEN is available
+        id: check-token
+        run: |
+          if [ -n "${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}" ]; then
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_token=false" >> $GITHUB_OUTPUT
+            echo "⚠️  INFRASTRUCTURE_REPO_TOKEN not configured - skipping infrastructure trigger"
+          fi
+
       - name: Trigger infrastructure repository
+        if: steps.check-token.outputs.has_token == 'true'
         uses: peter-evans/repository-dispatch@v2
         with:
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}
           repository: Travion-Reserch-Project/infrastructure
           event-type: deploy-ml-service
           client-payload: |
