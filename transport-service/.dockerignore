@@ -1,19 +1,69 @@
 # Python
 __pycache__
-app.egg-info
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
 .mypy_cache
 .coverage
 htmlcov
-.venv
+.pytest_cache
 
-# Development
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+
+# Development files (reduces image size significantly)
 notebooks/
-tests/
 *.ipynb
+.ipynb_checkpoints/
+tests/
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
 .env
 .env.*
 !.env.example
 
-# Model files now tracked with Git LFS and included in Docker image
-# No need to exclude - they're pulled from LFS during checkout
+# Documentation
+docs/
+*.pdf
+*.docx
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Large data files (if not needed at runtime)
+data/*.csv
+data/*.json
+!data/sample_*
+
+# Model files tracked with Git LFS - included in Docker image
+# Only exclude backup/temp model files
+*.pth.bak
+*.pkl.bak
+*.tmp
