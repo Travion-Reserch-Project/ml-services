@@ -1,3 +1,7 @@
+# Local development requirements for macOS (Apple Silicon)
+# Use this file for local development on Mac
+# For Docker/Linux deployment, use requirements.txt
+
 # Core API
 fastapi==0.120.2
 pydantic==2.12.3
@@ -19,6 +23,16 @@ pandas==2.2.0
 numpy==1.26.4
 scikit-learn==1.4.0
 
+# TensorFlow for Apple Silicon (optional - only if you need TensorFlow)
+tensorflow-macos==2.16.2
+tensorflow-metal==1.2.0
+
 # Utilities
 python-dotenv==1.0.0
 pyyaml==6.0.1
+
+# Development tools
+jupyter==1.0.0
+notebook==7.0.6
+matplotlib==3.8.2
+seaborn==0.13.0
