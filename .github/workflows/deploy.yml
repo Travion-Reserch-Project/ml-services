@@ -1,22 +1,20 @@
-name: Deploy ML Services
+name: Build and Deploy ML Services
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: travion-ml-service
 
 jobs:
-  build-and-push:
-    name: Build and Push Docker Image
+  # Job 1: Run tests
+  test:
+    name: Test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
 
     steps:
       - name: Checkout code
@@ -24,15 +22,48 @@ jobs:
         with:
           lfs: true
 
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          images: ${{ env.REGISTRY }}/travion-reserch-project/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
+          python-version: '3.9'
+          cache: 'pip'
+          cache-dependency-path: 'transport-service/requirements.txt'
+
+      - name: Install dependencies
+        working-directory: ./transport-service
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: ./transport-service
+        run: |
+          python tests/test_nlp_parser.py
+        continue-on-error: true
+
+  # Job 2: Build and push Docker image
+  build-and-push:
+    name: Build & Push Docker Image
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.image-output.outputs.tag }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      branch: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -41,46 +72,127 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/travion-reserch-project/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ./transport-service
+          file: ./transport-service/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-  trigger-deployment:
-    name: Trigger Infrastructure Deployment
+      - name: Output image tag
+        id: image-output
+        run: |
+          echo "tag=ghcr.io/travion-reserch-project/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Image built successfully
+        run: |
+          echo "✅ Image built and pushed to GHCR"
+          echo "📦 Tags: ${{ steps.meta.outputs.tags }}"
+          echo "🔗 Image: ghcr.io/travion-reserch-project/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+
+  # Job 3: Security scanning
+  security-scan:
+    name: Security Scan
     needs: build-and-push
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
 
     steps:
-      - name: Check if INFRASTRUCTURE_REPO_TOKEN is available
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-push.outputs.image-tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy in table format
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-push.outputs.image-tag }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+  # Job 4: Trigger infrastructure deployment
+  trigger-deployment:
+    name: Trigger Infrastructure Deployment
+    needs: [build-and-push, security-scan]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Check if infrastructure token exists
         id: check-token
         run: |
-          if [ -n "${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}" ]; then
-            echo "has_token=true" >> $GITHUB_OUTPUT
+          if [ -z "${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ INFRASTRUCTURE_REPO_TOKEN not configured - skipping deployment trigger"
           else
-            echo "has_token=false" >> $GITHUB_OUTPUT
-            echo "⚠️  INFRASTRUCTURE_REPO_TOKEN not configured - skipping infrastructure trigger"
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Trigger infrastructure repository
-        if: steps.check-token.outputs.has_token == 'true'
-        uses: peter-evans/repository-dispatch@v2
+      - name: Trigger infrastructure deployment workflow
+        if: steps.check-token.outputs.skip != 'true'
+        uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}
           repository: Travion-Reserch-Project/infrastructure
           event-type: deploy-ml-service
           client-payload: |
             {
-              "branch": "main",
+              "service": "ml-service",
+              "branch": "${{ github.ref_name }}",
               "sha": "${{ github.sha }}",
+              "image": "${{ needs.build-and-push.outputs.image-tag }}",
               "triggered_by": "${{ github.actor }}",
               "infisical": {
                 "client_id": "${{ secrets.INFISICAL_CLIENT_ID }}",
                 "client_secret": "${{ secrets.INFISICAL_CLIENT_SECRET }}",
                 "project_id": "${{ secrets.INFISICAL_PROJECT_ID }}",
-                "environment": "prod"
+                "environment": "${{ secrets.INFISICAL_ENVIRONMENT || 'prod' }}"
               }
             }
+
+      - name: Deployment triggered
+        if: steps.check-token.outputs.skip != 'true'
+        run: |
+          echo "✅ Infrastructure deployment triggered"
+          echo "🔗 Check: https://github.com/Travion-Reserch-Project/infrastructure/actions"
+          echo "📦 Service: ml-service"
+          echo "🌿 Branch: ${{ github.ref_name }}"
