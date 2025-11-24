@@ -1,11 +1,30 @@
 version: "3.8"
 
 services:
+  # Transport Safety Risk Prediction Service
   transport-service:
     build: ./transport-service
+    container_name: transport-service
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./transport-service:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - SERVICE_NAME=transport-service
+    restart: unless-stopped
+    networks:
+      - ml-services-network
+
+  # Virtual Tour Guide Service
+
+  # Risk Prediction Service
+
+  # Smart UV Assistance Service
+
+networks:
+  ml-services-network:
+    driver: bridge
+
+volumes:
+  transport-data:

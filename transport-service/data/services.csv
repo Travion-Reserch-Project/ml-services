@@ -1,0 +1,46 @@
+service_id,route_id,service_name,departure_time,arrival_time,operating_days,current_availability,capacity,operator,service_type
+S001,R001,Intercity Express,06:00,09:00,Mon-Sun,0.95,500,Sri Lanka Railways,express
+S002,R001,Intercity Express,10:30,13:30,Mon-Sun,0.92,500,Sri Lanka Railways,express
+S003,R001,Night Mail,20:00,23:00,Mon-Sun,0.88,400,Sri Lanka Railways,regular
+S004,R002,Highway Bus,05:30,09:00,Mon-Sun,0.90,45,SLTB,semi-luxury
+S005,R002,Highway Bus,07:00,10:30,Mon-Sun,0.85,45,SLTB,semi-luxury
+S006,R002,Normal Bus,08:30,12:00,Mon-Sun,0.88,55,SLTB,regular
+S007,R002,Normal Bus,14:00,17:30,Mon-Sun,0.90,55,SLTB,regular
+S008,R002,Normal Bus,16:30,20:00,Mon-Sun,0.82,55,SLTB,regular
+S009,R003,Galle Express,06:30,09:00,Mon-Sun,0.96,600,Sri Lanka Railways,express
+S010,R003,Galle Express,15:00,17:30,Mon-Sun,0.94,600,Sri Lanka Railways,express
+S011,R004,Highway Bus,06:00,09:00,Mon-Sun,0.92,50,SLTB,semi-luxury
+S012,R004,Normal Bus,08:00,11:00,Mon-Sun,0.90,60,SLTB,regular
+S013,R004,Normal Bus,17:00,20:00,Mon-Sun,0.88,60,SLTB,regular
+S014,R005,Rajarata Rajini,05:45,10:15,Mon-Sun,0.88,450,Sri Lanka Railways,express
+S015,R005,Uttara Devi,16:00,20:30,Mon-Sun,0.82,400,Sri Lanka Railways,regular
+S016,R006,Normal Bus,05:30,10:30,Mon-Sun,0.82,55,SLTB,regular
+S017,R006,Normal Bus,14:00,19:00,Mon-Sun,0.78,55,SLTB,regular
+S018,R007,Airport Express,05:00,06:00,Mon-Sun,0.98,40,Private,semi-luxury
+S019,R007,Normal Bus,06:30,07:30,Mon-Sun,0.96,60,SLTB,regular
+S020,R007,Normal Bus,09:00,10:00,Mon-Sun,0.94,60,SLTB,regular
+S021,R007,Normal Bus,17:00,18:00,Mon-Sun,0.92,60,SLTB,regular
+S022,R013,Podi Menike,08:45,15:45,Mon-Sun,0.75,350,Sri Lanka Railways,scenic
+S023,R013,Udarata Menike,11:00,18:00,Mon-Sun,0.68,350,Sri Lanka Railways,scenic
+S024,R014,Semi-Luxury Bus,06:00,11:30,Mon-Sun,0.80,45,Private,semi-luxury
+S025,R014,Normal Bus,07:30,13:00,Mon-Sun,0.78,55,SLTB,regular
+S026,R014,Normal Bus,14:00,19:30,Mon-Sun,0.76,55,SLTB,regular
+S027,R031,Intercity Express,06:15,09:15,Mon-Sun,0.94,500,Sri Lanka Railways,express
+S028,R031,Intercity Express,10:00,13:00,Mon-Sun,0.91,500,Sri Lanka Railways,express
+S029,R031,Night Mail,19:30,22:30,Mon-Sun,0.87,400,Sri Lanka Railways,regular
+S030,R032,Highway Bus,05:45,09:15,Mon-Sun,0.89,45,SLTB,semi-luxury
+S031,R032,Highway Bus,07:15,10:45,Mon-Sun,0.84,45,SLTB,semi-luxury
+S032,R032,Normal Bus,09:00,12:30,Mon-Sun,0.87,55,SLTB,regular
+S033,R032,Normal Bus,14:30,18:00,Mon-Sun,0.89,55,SLTB,regular
+S034,R032,Normal Bus,17:00,20:30,Mon-Sun,0.81,55,SLTB,regular
+S035,R033,Galle Express,07:00,09:30,Mon-Sun,0.95,600,Sri Lanka Railways,express
+S036,R033,Galle Express,16:00,18:30,Mon-Sun,0.93,600,Sri Lanka Railways,express
+S037,R034,Highway Bus,06:30,09:30,Mon-Sun,0.91,50,SLTB,semi-luxury
+S038,R034,Normal Bus,08:30,11:30,Mon-Sun,0.89,60,SLTB,regular
+S039,R034,Normal Bus,17:30,20:30,Mon-Sun,0.87,60,SLTB,regular
+S040,R012,Normal Bus,06:00,08:30,Mon-Sun,0.89,55,SLTB,regular
+S041,R012,Normal Bus,09:30,12:00,Mon-Sun,0.88,55,SLTB,regular
+S042,R012,Normal Bus,15:00,17:30,Mon-Sun,0.86,55,SLTB,regular
+S043,R015,Hill Country Bus,06:30,09:30,Mon-Sun,0.84,45,Private,semi-luxury
+S044,R015,Normal Bus,08:00,11:00,Mon-Sun,0.82,55,SLTB,regular
+S045,R015,Normal Bus,15:30,18:30,Mon-Sun,0.80,55,SLTB,regular
