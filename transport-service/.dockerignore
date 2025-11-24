@@ -6,3 +6,14 @@ app.egg-info
 .coverage
 htmlcov
 .venv
+
+# Development
+notebooks/
+tests/
+*.ipynb
+.env
+.env.*
+!.env.example
+
+# Model files now tracked with Git LFS and included in Docker image
+# No need to exclude - they're pulled from LFS during checkout
