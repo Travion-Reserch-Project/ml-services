@@ -164,11 +164,15 @@ def health_check():
     parser = get_nlp_parser()
     service = get_transport_service()
     
+    # Check if model file exists
+    model_exists = os.path.exists('model/transport_gnn_model.pth')
+    
     return {
         "status": "healthy",
         "nlp_parser": "loaded" if parser else "not loaded",
-        "gnn_model": "loaded" if (service and service.model) else "not loaded",
-        "data": "loaded" if (service and service.services_data is not None) else "not loaded"
+        "gnn_model": "loaded" if (service and service.model) else ("not found" if not model_exists else "not loaded"),
+        "data": "loaded" if (service and service.services_data is not None) else "not loaded",
+        "note": "GNN model will be added via Git LFS after training" if not model_exists else None
     }
 
 
