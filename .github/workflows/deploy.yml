@@ -25,11 +25,21 @@ jobs:
           cache: "pip"
           cache-dependency-path: "transport-service/requirements.txt"
 
-      - name: Install dependencies
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('transport-service/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies (minimal for testing)
         working-directory: ./transport-service
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          # Install only test dependencies (not PyTorch)
+          pip install pytest fastapi pydantic spacy transformers
+          python -m spacy download en_core_web_sm
 
       - name: Run tests
         working-directory: ./transport-service
@@ -112,6 +122,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Speed optimizations
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          platforms: linux/amd64
+          provenance: false
 
       - name: Output image tag
         id: image-output

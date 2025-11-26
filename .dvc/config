@@ -1,0 +1,5 @@
+[core]
+    remote = dagshub
+    autostage = true
+['remote "dagshub"']
+    url = https://dagshub.com/iamsahan/ml-services.dvc

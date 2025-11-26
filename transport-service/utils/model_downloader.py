@@ -1,16 +1,115 @@
 """
 Model Downloader for ML Services
-Downloads models from GitHub Releases, S3, GCS, or Azure Blob Storage
+Supports: MLflow Model Registry (DagsHub), DVC, GitHub Releases, S3, GCS, Azure
 """
 import os
 import hashlib
 import requests
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Optional MLflow import (graceful fallback)
+try:
+    import mlflow
+    import mlflow.pyfunc
+    import mlflow.pytorch
+    MLFLOW_AVAILABLE = True
+    logger.info("✓ MLflow available")
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    logger.warning("⚠️  MLflow not installed - MLflow features disabled")
+
+
+class MLflowModelLoader:
+    """Load models from MLflow Model Registry (DagsHub)"""
+    
+    def __init__(self, tracking_uri: Optional[str] = None):
+        """
+        Initialize MLflow model loader
+        
+        Args:
+            tracking_uri: MLflow tracking URI (e.g., https://dagshub.com/user/repo.mlflow)
+        """
+        if not MLFLOW_AVAILABLE:
+            raise ImportError("MLflow not installed. Run: pip install mlflow")
+        
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+            logger.info(f"📊 MLflow tracking URI: {tracking_uri}")
+    
+    def load_model(
+        self,
+        model_name: str,
+        version: Optional[str] = None,
+        stage: Optional[str] = "Production"
+    ) -> Any:
+        """
+        Load model from MLflow Model Registry
+        
+        Args:
+            model_name: Registered model name (e.g., "transport-gnn-model")
+            version: Specific version (e.g., "3") or None
+            stage: Stage name ("Production", "Staging", "None") or None
+            
+        Returns:
+            Loaded model object
+            
+        Example:
+            loader = MLflowModelLoader("https://dagshub.com/user/repo.mlflow")
+            model = loader.load_model("transport-gnn", stage="Production")
+        """
+        try:
+            # Build model URI
+            if version:
+                model_uri = f"models:/{model_name}/{version}"
+                logger.info(f"📦 Loading {model_name} v{version}...")
+            elif stage:
+                model_uri = f"models:/{model_name}/{stage}"
+                logger.info(f"📦 Loading {model_name} from {stage}...")
+            else:
+                # Get latest version
+                client = mlflow.MlflowClient()
+                versions = client.search_model_versions(f"name='{model_name}'")
+                if not versions:
+                    raise ValueError(f"No versions found for model '{model_name}'")
+                latest_version = max(versions, key=lambda v: int(v.version))
+                model_uri = f"models:/{model_name}/{latest_version.version}"
+                logger.info(f"📦 Loading {model_name} latest v{latest_version.version}...")
+            
+            # Load model
+            model = mlflow.pyfunc.load_model(model_uri)
+            logger.info(f"✅ Model loaded: {model_uri}")
+            
+            return model
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load from MLflow: {e}")
+            raise
+    
+    def get_model_info(self, model_name: str, stage: str = "Production") -> Dict:
+        """Get model metadata from registry"""
+        try:
+            client = mlflow.MlflowClient()
+            versions = client.get_latest_versions(model_name, stages=[stage])
+            
+            if not versions:
+                return {"error": f"No {stage} version found for {model_name}"}
+            
+            version = versions[0]
+            return {
+                "name": model_name,
+                "version": version.version,
+                "stage": stage,
+                "run_id": version.run_id,
+                "status": version.status,
+                "created_at": version.creation_timestamp
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
 
 class ModelDownloader:
@@ -236,39 +335,97 @@ class ModelDownloader:
         return downloaded_models
 
 
-def download_transport_models() -> Dict[str, Path]:
+def download_transport_models() -> Dict[str, Any]:
     """
     Download all transport service models
+    Supports MLflow (DagsHub), DVC, or GitHub Releases
     
     Returns:
-        Dictionary of model paths
+        Dictionary of model paths or loaded models
     """
-    downloader = ModelDownloader(cache_dir="model")
-    
-    # Configuration from environment variables
-    repo = os.getenv("MODEL_REPO", "Travion-Reserch-Project/ml-services")
-    release_tag = os.getenv("MODEL_RELEASE_TAG", "latest")
-    
-    model_config = {
-        "gnn_model": {
-            "source": "github_release",
-            "repo": repo,
-            "tag": release_tag,
-            "filename": "transport_gnn_model.pth",
-            # Hash will be added when model is uploaded
-        },
-        "risk_model": {
-            "source": "github_release",
-            "repo": repo,
-            "tag": release_tag,
-            "filename": "risk_model.pkl",
-        }
-    }
+    # Check model source from environment
+    model_source = os.getenv("MODEL_SOURCE", "github_release")
     
     logger.info("=" * 60)
-    logger.info("Starting model download...")
-    logger.info(f"Repository: {repo}")
-    logger.info(f"Release tag: {release_tag}")
+    logger.info(f"Model Source: {model_source}")
+    logger.info("=" * 60)
+    
+    # Option 1: Load from MLflow Model Registry (DagsHub)
+    if model_source == "mlflow":
+        if not MLFLOW_AVAILABLE:
+            logger.error("❌ MLflow not installed but MODEL_SOURCE=mlflow")
+            logger.info("💡 Falling back to github_release...")
+            model_source = "github_release"
+        else:
+            try:
+                tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+                model_name = os.getenv("MODEL_NAME", "transport-gnn-model")
+                model_stage = os.getenv("MODEL_STAGE", "Production")
+                model_version = os.getenv("MODEL_VERSION")  # Optional
+                
+                if not tracking_uri:
+                    logger.error("❌ MLFLOW_TRACKING_URI not set")
+                    raise ValueError("MLflow URI required when MODEL_SOURCE=mlflow")
+                
+                # Set MLflow credentials
+                username = os.getenv("MLFLOW_TRACKING_USERNAME")
+                password = os.getenv("MLFLOW_TRACKING_PASSWORD")
+                if username and password:
+                    os.environ["MLFLOW_TRACKING_USERNAME"] = username
+                    os.environ["MLFLOW_TRACKING_PASSWORD"] = password
+                
+                loader = MLflowModelLoader(tracking_uri)
+                
+                logger.info(f"📊 Loading from MLflow Registry...")
+                logger.info(f"   Model: {model_name}")
+                logger.info(f"   Stage: {model_stage}")
+                if model_version:
+                    logger.info(f"   Version: {model_version}")
+                
+                model = loader.load_model(
+                    model_name=model_name,
+                    version=model_version,
+                    stage=model_stage if not model_version else None
+                )
+                
+                logger.info("✅ Model loaded from MLflow")
+                return {
+                    "gnn_model": model,
+                    "source": "mlflow",
+                    "model_name": model_name,
+                    "stage": model_stage
+                }
+                
+            except Exception as e:
+                logger.error(f"❌ MLflow loading failed: {e}")
+                logger.info("💡 Falling back to github_release...")
+                model_source = "github_release"
+    
+    # Option 2: GitHub Releases (Fallback)
+    if model_source == "github_release":
+        downloader = ModelDownloader(cache_dir="model")
+        
+        repo = os.getenv("MODEL_REPO", "Travion-Reserch-Project/ml-services")
+        release_tag = os.getenv("MODEL_RELEASE_TAG", "latest")
+        
+        model_config = {
+            "gnn_model": {
+                "source": "github_release",
+                "repo": repo,
+                "tag": release_tag,
+                "filename": "transport_gnn_model.pth",
+            },
+            "risk_model": {
+                "source": "github_release",
+                "repo": repo,
+                "tag": release_tag,
+                "filename": "risk_model.pkl",
+            }
+        }
+        
+        logger.info(f"📦 Downloading from GitHub Releases...")
+        logger.info(f"   Repository: {repo}")
+        logger.info(f"   Tag: {release_tag}")
     logger.info("=" * 60)
     
     models = downloader.download_models(model_config)
