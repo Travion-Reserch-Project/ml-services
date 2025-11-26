@@ -2,6 +2,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -13,6 +21,35 @@ app = FastAPI(
 # Lazy loading of heavy dependencies
 nlp_parser = None
 transport_service = None
+models_downloaded = False
+
+def ensure_models_downloaded():
+    """Download models on first request if not already downloaded."""
+    global models_downloaded
+    if not models_downloaded:
+        logger.info("=" * 60)
+        logger.info("Checking for ML models...")
+        logger.info("=" * 60)
+        
+        try:
+            from utils.model_downloader import download_transport_models
+            
+            # Download models from GitHub Releases
+            downloaded = download_transport_models()
+            
+            if downloaded:
+                logger.info(f"✓ Successfully prepared {len(downloaded)} model(s)")
+                models_downloaded = True
+            else:
+                logger.warning("⚠️ No models were downloaded - service will run in limited mode")
+                models_downloaded = True  # Don't keep trying
+                
+        except Exception as e:
+            logger.error(f"✗ Failed to download models: {e}")
+            logger.warning("⚠️ Service will start without GNN model")
+            models_downloaded = True  # Don't keep trying
+        
+        logger.info("=" * 60)
 
 def get_nlp_parser():
     """Lazy load NLP parser."""
@@ -77,6 +114,9 @@ def process_natural_language_query(request: QueryRequest):
     - "Bus from Galle to Colombo tomorrow morning"
     - "Train to Ella leaving after 3pm"
     """
+    # Ensure models are downloaded before processing
+    ensure_models_downloaded()
+    
     try:
         service = get_transport_service()
         
@@ -101,6 +141,9 @@ def parse_query(request: QueryRequest):
     
     Returns extracted entities: origin, destination, time, mode, date.
     """
+    # Ensure models are downloaded (for NLP models)
+    ensure_models_downloaded()
+    
     try:
         parser = get_nlp_parser()
         parsed = parser.parse(request.query)

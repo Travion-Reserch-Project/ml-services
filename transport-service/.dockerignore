@@ -62,8 +62,17 @@ data/*.csv
 data/*.json
 !data/sample_*
 
-# Model files tracked with Git LFS - included in Docker image
-# Only exclude backup/temp model files
+# Model files - EXCLUDED from Docker image
+# Models will be downloaded at runtime from GitHub Releases or cloud storage
+model/
+*.pth
+*.pkl
+*.h5
+*.onnx
+*.pb
+*.safetensors
+
+# Model backups and temp files
 *.pth.bak
 *.pkl.bak
 *.tmp
