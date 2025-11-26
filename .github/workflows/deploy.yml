@@ -3,8 +3,6 @@ name: Build and Deploy ML Services
 on:
   push:
     branches: [main, develop, feature/*]
-  pull_request:
-    branches: [main, develop]
 
 env:
   REGISTRY: ghcr.io
