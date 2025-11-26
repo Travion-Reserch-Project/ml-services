@@ -37,15 +37,15 @@ jobs:
         working-directory: ./transport-service
         run: |
           pip install --upgrade pip
-          # Install only test dependencies (not PyTorch)
-          pip install pytest fastapi pydantic spacy transformers
-          python -m spacy download en_core_web_sm
+          # Install only what's needed for lightweight API structure tests
+          pip install pytest fastapi pydantic
 
       - name: Run tests
         working-directory: ./transport-service
         run: |
-          python tests/test_nlp_parser.py
-        continue-on-error: true
+          # Run lightweight API tests (no ML models loaded)
+          python tests/test_api.py
+        continue-on-error: false
 
   # Job 2: Build and push Docker image
   build-and-push:
