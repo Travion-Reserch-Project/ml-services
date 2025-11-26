@@ -2,7 +2,7 @@ name: Build and Deploy ML Services
 
 on:
   push:
-    branches: [main, develop, feature/*]
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
