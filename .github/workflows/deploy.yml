@@ -22,16 +22,6 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: "3.9"
-          cache: "pip"
-          cache-dependency-path: "transport-service/requirements.txt"
-
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('transport-service/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
       - name: Install dependencies (minimal for testing)
         working-directory: ./transport-service
@@ -60,7 +50,7 @@ jobs:
     outputs:
       image-tag: ${{ steps.image-output.outputs.tag }}
       image-digest: ${{ steps.build.outputs.digest }}
-      branch: ${{ github.ref_name }}
+      branch: ${{ steps.owner.outputs.branch }}
 
     steps:
       - name: Checkout code
@@ -69,9 +59,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Set lowercase owner name
+      - name: Set lowercase owner name and sanitize branch
         id: owner
-        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        run: |
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          # Sanitize branch name: replace / with - for valid Docker tags
+          echo "branch=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> $GITHUB_OUTPUT
 
       - name: Determine authentication token
         id: auth
@@ -108,8 +101,8 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
+            type=raw,value=${{ steps.owner.outputs.branch }}
+            type=sha,prefix=${{ steps.owner.outputs.branch }}-
 
       - name: Build and push Docker image
         id: build
@@ -120,6 +113,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Use GitHub Actions cache for layers
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Speed optimizations
@@ -127,17 +121,19 @@ jobs:
             BUILDKIT_INLINE_CACHE=1
           platforms: linux/amd64
           provenance: false
+          # Compress layers during push
+          outputs: type=image,compression=estargz,oci-mediatypes=true,push=true
 
-      - name: Output image tag
+      - name: Output image tag for later jobs
         id: image-output
         run: |
-          echo "tag=ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "tag=ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.owner.outputs.branch }}" >> $GITHUB_OUTPUT
 
       - name: Image built successfully
         run: |
           echo "✅ Image built and pushed to GHCR"
           echo "📦 Tags: ${{ steps.meta.outputs.tags }}"
-          echo "🔗 Image: ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          echo "🔗 Image: ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.owner.outputs.branch }}"
 
   # Job 3: Security scanning
   security-scan:

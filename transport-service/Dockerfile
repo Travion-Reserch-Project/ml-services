@@ -11,11 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies in separate layers for better caching
+RUN pip install --upgrade pip
+
+# Install PyTorch CPU separately (cached layer)
+RUN pip install --no-cache-dir --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# Install other dependencies (only rebuilds if requirements.txt changes)
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 2: Runtime image (much smaller, no models included)
 FROM python:3.9-slim
