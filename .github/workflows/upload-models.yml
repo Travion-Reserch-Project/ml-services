@@ -1,0 +1,233 @@
+name: Upload ML Models to Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (e.g., v1.0.0 or latest)"
+        required: true
+        default: "latest"
+      model_version:
+        description: "Model version description"
+        required: false
+        default: "Latest trained models"
+
+jobs:
+  upload-models:
+    name: Upload Models to GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          ref: ${{ github.ref_name }}
+
+      - name: Checkout LFS files
+        run: git lfs pull
+
+      - name: Verify models exist
+        id: verify
+        run: |
+          echo "Checking for model files..."
+
+          models_found=0
+
+          if [ -f "transport-service/model/transport_gnn_model.pth" ]; then
+            echo "✓ Found: transport_gnn_model.pth"
+            echo "gnn_model=true" >> $GITHUB_OUTPUT
+            models_found=$((models_found + 1))
+          else
+            echo "✗ Missing: transport_gnn_model.pth"
+            echo "gnn_model=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f "transport-service/model/risk_model.pkl" ]; then
+            echo "✓ Found: risk_model.pkl"
+            echo "risk_model=true" >> $GITHUB_OUTPUT
+            models_found=$((models_found + 1))
+          else
+            echo "✗ Missing: risk_model.pkl"
+            echo "risk_model=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "models_found=$models_found" >> $GITHUB_OUTPUT
+
+          if [ $models_found -eq 0 ]; then
+            echo "::error::No model files found to upload"
+            exit 1
+          fi
+
+          echo "Found $models_found model file(s) to upload"
+
+      - name: Calculate model hashes
+        id: hashes
+        run: |
+          echo "Calculating SHA256 hashes..."
+
+          if [ -f "transport-service/model/transport_gnn_model.pth" ]; then
+            gnn_hash=$(sha256sum transport-service/model/transport_gnn_model.pth | awk '{print $1}')
+            echo "gnn_hash=$gnn_hash" >> $GITHUB_OUTPUT
+            echo "GNN Model: $gnn_hash"
+          fi
+
+          if [ -f "transport-service/model/risk_model.pkl" ]; then
+            risk_hash=$(sha256sum transport-service/model/risk_model.pkl | awk '{print $1}')
+            echo "risk_hash=$risk_hash" >> $GITHUB_OUTPUT
+            echo "Risk Model: $risk_hash"
+          fi
+
+      - name: Create or update release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+
+          # Check if release exists
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, will update assets"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Creating new release $TAG"
+            gh release create "$TAG" \
+              --title "ML Models $TAG" \
+              --notes "${{ github.event.inputs.model_version }}" \
+              --draft=false \
+              --prerelease=false
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload GNN model
+        if: steps.verify.outputs.gnn_model == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+
+          # Delete existing asset if it exists
+          gh release delete-asset "$TAG" transport_gnn_model.pth --yes || true
+
+          # Upload new asset
+          gh release upload "$TAG" \
+            transport-service/model/transport_gnn_model.pth \
+            --clobber
+
+          echo "✓ Uploaded transport_gnn_model.pth"
+
+      - name: Upload Risk model
+        if: steps.verify.outputs.risk_model == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+
+          # Delete existing asset if it exists
+          gh release delete-asset "$TAG" risk_model.pkl --yes || true
+
+          # Upload new asset
+          gh release upload "$TAG" \
+            transport-service/model/risk_model.pkl \
+            --clobber
+
+          echo "✓ Uploaded risk_model.pkl"
+
+      - name: Update release notes with hashes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+
+          # Create release notes with model hashes
+          cat > release_notes.md << EOF
+          # ML Models Release $TAG
+
+          ${{ github.event.inputs.model_version }}
+
+          ## Uploaded Models
+
+          EOF
+
+          if [ "${{ steps.verify.outputs.gnn_model }}" == "true" ]; then
+            cat >> release_notes.md << EOF
+          ### Transport GNN Model
+          - File: \`transport_gnn_model.pth\`
+          - SHA256: \`${{ steps.hashes.outputs.gnn_hash }}\`
+
+          EOF
+          fi
+
+          if [ "${{ steps.verify.outputs.risk_model }}" == "true" ]; then
+            cat >> release_notes.md << EOF
+          ### Risk Assessment Model
+          - File: \`risk_model.pkl\`
+          - SHA256: \`${{ steps.hashes.outputs.risk_hash }}\`
+
+          EOF
+          fi
+
+          cat >> release_notes.md << EOF
+          ## Usage
+
+          Models will be automatically downloaded by the ML service at runtime.
+
+          ### Environment Variables
+          \`\`\`
+          MODEL_REPO=Travion-Reserch-Project/ml-services
+          MODEL_RELEASE_TAG=$TAG
+          \`\`\`
+
+          ### Manual Download
+          \`\`\`bash
+          # GNN Model
+          wget https://github.com/Travion-Reserch-Project/ml-services/releases/download/$TAG/transport_gnn_model.pth
+
+          # Risk Model
+          wget https://github.com/Travion-Reserch-Project/ml-services/releases/download/$TAG/risk_model.pkl
+          \`\`\`
+
+          ---
+
+          **Build:** ${{ github.sha }}  
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+          # Update release notes
+          gh release edit "$TAG" --notes-file release_notes.md
+
+          echo "✓ Release notes updated with model hashes"
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Models Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release:** ${{ github.event.inputs.release_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Models uploaded:** ${{ steps.verify.outputs.models_found }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Download URLs" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.verify.outputs.gnn_model }}" == "true" ]; then
+            echo "- [transport_gnn_model.pth](https://github.com/Travion-Reserch-Project/ml-services/releases/download/${{ github.event.inputs.release_tag }}/transport_gnn_model.pth)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.verify.outputs.risk_model }}" == "true" ]; then
+            echo "- [risk_model.pkl](https://github.com/Travion-Reserch-Project/ml-services/releases/download/${{ github.event.inputs.release_tag }}/risk_model.pkl)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Model Hashes (SHA256)" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ steps.hashes.outputs.gnn_hash }}" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "GNN: ${{ steps.hashes.outputs.gnn_hash }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -n "${{ steps.hashes.outputs.risk_hash }}" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "Risk: ${{ steps.hashes.outputs.risk_hash }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi

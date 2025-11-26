@@ -3,10 +3,16 @@ fastapi==0.120.2
 pydantic==2.12.3
 uvicorn==0.38.0
 starlette==0.49.1
+requests==2.31.0
+
+# MLOps Tools
+mlflow==2.9.2
+dvc==3.48.4
 
 # NLP dependencies
 transformers==4.36.0
-torch==2.1.0
+# PyTorch CPU-only (installed separately in Dockerfile for speed)
+# torch==2.1.0+cpu
 spacy==3.7.2
 en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 
