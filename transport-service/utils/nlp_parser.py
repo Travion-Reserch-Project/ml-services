@@ -141,6 +141,45 @@ class TransportQueryParser:
         """
         locations = []
         
+        # Clean query by removing filler words at boundaries
+        filler_words = ['please', 'thanks', 'thank you', 'kindly', 'urgent', 'asap']
+        cleaned_query = query
+        for filler in filler_words:
+            cleaned_query = re.sub(rf'\b{filler}\b', '', cleaned_query, flags=re.IGNORECASE)
+        cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()  # Remove extra spaces
+        
+        # PATTERN 1: "to DESTINATION from ORIGIN" (destination mentioned first)
+        to_from_pattern = r'to\s+(\w+(?:\s+\w+)?)\s+from\s+(\w+(?:\s+\w+)?)'
+        to_from_match = re.search(to_from_pattern, cleaned_query, re.IGNORECASE)
+        if to_from_match:
+            destination = to_from_match.group(1).strip().capitalize()
+            origin = to_from_match.group(2).strip().capitalize()
+            # Filter out common verbs/words
+            skip_words = ['go', 'get', 'going', 'getting', 'travel', 'trip', 'way', 'how', 'want', 'need', 'like', 'prefer', 'nedd', 'ned']
+            if origin.lower() not in skip_words and destination.lower() not in skip_words:
+                return [origin, destination]
+        
+        # PATTERN 2: "from ORIGIN to DESTINATION" (origin mentioned first)
+        from_to_pattern = r'from\s+(\w+(?:\s+\w+)?)\s+to\s+(\w+(?:\s+\w+)?)'
+        from_to_match = re.search(from_to_pattern, cleaned_query, re.IGNORECASE)
+        if from_to_match:
+            origin = from_to_match.group(1).strip().capitalize()
+            destination = from_to_match.group(2).strip().capitalize()
+            skip_words = ['go', 'get', 'going', 'getting', 'travel', 'trip', 'way', 'how', 'want', 'need', 'like', 'prefer']
+            if origin.lower() not in skip_words and destination.lower() not in skip_words:
+                return [origin, destination]
+        
+        # PATTERN 3: Simple "ORIGIN to DESTINATION" pattern (case-insensitive)
+        simple_to_pattern = r'\b(\w+(?:\s+\w+)?)\s+to\s+(\w+(?:\s+\w+)?)\b'
+        simple_match = re.search(simple_to_pattern, cleaned_query, re.IGNORECASE)
+        if simple_match:
+            origin = simple_match.group(1).strip().capitalize()
+            destination = simple_match.group(2).strip().capitalize()
+            # Filter out common words
+            skip_words = ['go', 'get', 'going', 'getting', 'travel', 'trip', 'way', 'how', 'want', 'need', 'like', 'prefer', 'nedd']
+            if origin.lower() not in skip_words and destination.lower() not in skip_words:
+                return [origin, destination]
+        
         # First check for common multi-word location patterns (X National Park, X Beach, X Fort, etc.)
         # This must come before "to/from" patterns to capture full names
         multiword_patterns = [
