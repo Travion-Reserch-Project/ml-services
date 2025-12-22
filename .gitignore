@@ -63,3 +63,12 @@ data/*.json
 # Logs
 *.log
 logs/
+
+# DagsHub/MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+*.csv.dvc
