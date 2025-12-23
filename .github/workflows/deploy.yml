@@ -141,88 +141,7 @@ jobs:
           echo "📦 Tags: ${{ steps.meta.outputs.tags }}"
           echo "🔗 Image: ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.owner.outputs.branch }}"
 
-  # Job 3: Publish model artifact to DagsHub (optional)
-  publish-model:
-    name: Publish Model to DagsHub
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Ensure model file exists
-        id: model-check
-        run: |
-          if [ ! -f transport-service/model/transport_gnn_model.pth ]; then
-            echo "found=false" >> $GITHUB_OUTPUT
-            echo "⚠️ transport_gnn_model.pth not found; skipping DagsHub publish"
-          else
-            echo "found=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Setup Python
-        if: steps.model-check.outputs.found == 'true'
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
-
-      - name: Publish artifact to DagsHub MLflow
-        if: steps.model-check.outputs.found == 'true'
-        working-directory: transport-service
-        env:
-          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
-          DAGSHUB_REPO_OWNER: ${{ env.DAGSHUB_REPO_OWNER }}
-          DAGSHUB_REPO_NAME: ${{ env.DAGSHUB_REPO_NAME }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
-        run: |
-          if [ -z "$DAGSHUB_TOKEN" ]; then
-            echo "⚠️ DAGSHUB_TOKEN not set; skipping publish" && exit 0
-          fi
-
-          pip install --upgrade pip
-          pip install dagshub mlflow python-dotenv
-
-          export MLFLOW_TRACKING_URI="https://dagshub.com/${DAGSHUB_REPO_OWNER}/${DAGSHUB_REPO_NAME}.mlflow"
-          export MLFLOW_TRACKING_USERNAME="${DAGSHUB_REPO_OWNER}"
-          export MLFLOW_TRACKING_PASSWORD="${DAGSHUB_TOKEN}"
-
-          cat > publish_model.py <<'EOF'
-          import os
-          import mlflow
-          from pathlib import Path
-
-          model_path = Path('model/transport_gnn_model.pth')
-          if not model_path.exists():
-              print('⚠️ Model file missing, aborting publish')
-              raise SystemExit(0)
-
-          tracking_uri = os.environ['MLFLOW_TRACKING_URI']
-          branch = os.environ.get('GITHUB_REF_NAME')
-          commit = os.environ.get('GITHUB_SHA')
-          image = os.environ.get('IMAGE_TAG')
-
-          mlflow.set_tracking_uri(tracking_uri)
-          mlflow.set_experiment('transport-gnn')
-
-          with mlflow.start_run(run_name='ci-publish-model'):
-              mlflow.log_artifact(str(model_path))
-              mlflow.log_param('source', 'github-actions')
-              if branch:
-                  mlflow.log_param('branch', branch)
-              if commit:
-                  mlflow.log_param('commit', commit)
-              if image:
-                  mlflow.set_tag('image', image)
-              print('✅ Logged model artifact to DagsHub MLflow')
-          EOF
-
-          python publish_model.py
-
-  # Job 4: Security scanning (temporarily disabled for speed optimization)
+  # Job 3: Security scanning (temporarily disabled for speed optimization)
   # security-scan:
   #   name: Security Scan
   #   needs: build-and-push
@@ -275,10 +194,10 @@ jobs:
   #         severity: "CRITICAL,HIGH"
   #         scanners: "vuln"
 
-  # Job 4: Trigger infrastructure deployment
+  # Job 3: Trigger infrastructure deployment
   trigger-deployment:
     name: Trigger Infrastructure Deployment
-    needs: [build-and-push, publish-model]
+    needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
 
@@ -307,6 +226,11 @@ jobs:
               "sha": "${{ github.sha }}",
               "image": "${{ needs.build-and-push.outputs.image-tag }}",
               "triggered_by": "${{ github.actor }}",
+              "dagshub": {
+                "token": "${{ secrets.DAGSHUB_TOKEN }}",
+                "repo_owner": "${{ env.DAGSHUB_REPO_OWNER }}",
+                "repo_name": "${{ env.DAGSHUB_REPO_NAME }}"
+              },
               "infisical": {
                 "client_id": "${{ secrets.INFISICAL_CLIENT_ID }}",
                 "client_secret": "${{ secrets.INFISICAL_CLIENT_SECRET }}",
