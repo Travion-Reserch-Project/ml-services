@@ -126,15 +126,62 @@ class TransportServiceGNN:
             self.model = None
     
     def _load_data(self, data_path: str):
-        """Load transport network data."""
+        """
+        Load transport network data (the "database" of services).
+
+        Why we need CSV files even though we have a trained model:
+        - nodes.csv: Location names/IDs (e.g., "Colombo" → location_id=1)
+        - services.csv: Service details (operator, fare, duration, mode)
+        - edges.csv: Which locations connect to which (available routes)
+
+        The model predicts RATINGS for services, not the service details themselves.
+        Think: CSV = menu, Model = food critic that rates menu items.
+        """
         try:
-            self.nodes_df = pd.read_csv(f"{data_path}/nodes.csv")
-            self.services_df = pd.read_csv(f"{data_path}/services.csv")
-            self.edges_df = pd.read_csv(f"{data_path}/edges.csv")
-            
-            print(f"✅ Data loaded: {len(self.nodes_df)} nodes, "
-                  f"{len(self.services_df)} services, {len(self.edges_df)} edges")
-            
+            # Resolve data directory robustly
+            candidates = []
+            env_path = os.getenv('DATA_PATH')
+            if env_path:
+                candidates.append(env_path)
+
+            # Provided path
+            candidates.append(data_path)
+
+            # Absolute from CWD
+            candidates.append(os.path.abspath(data_path))
+
+            # Module-relative path (…/utils/ → …/data)
+            module_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates.append(os.path.normpath(os.path.join(module_dir, '..', 'data')))
+
+            # Common container path
+            candidates.append('/app/data')
+
+            resolved = None
+            for p in candidates:
+                try_nodes = os.path.join(p, 'nodes.csv')
+                try_services = os.path.join(p, 'services.csv')
+                try_edges = os.path.join(p, 'edges.csv')
+                if os.path.exists(try_nodes) and os.path.exists(try_services) and os.path.exists(try_edges):
+                    resolved = p
+                    break
+
+            if not resolved:
+                raise FileNotFoundError(
+                    "Could not locate data files (nodes.csv, services.csv, edges.csv). "
+                    f"Tried: {candidates}"
+                )
+
+            # Load CSVs from resolved path
+            self.nodes_df = pd.read_csv(os.path.join(resolved, 'nodes.csv'))
+            self.services_df = pd.read_csv(os.path.join(resolved, 'services.csv'))
+            self.edges_df = pd.read_csv(os.path.join(resolved, 'edges.csv'))
+
+            print(
+                f"✅ Data loaded from {resolved}: {len(self.nodes_df)} nodes, "
+                f"{len(self.services_df)} services, {len(self.edges_df)} edges"
+            )
+
         except Exception as e:
             print(f"⚠️ Could not load data: {e}")
             import traceback
@@ -142,26 +189,32 @@ class TransportServiceGNN:
     
     def predict_service_ratings(self, service_indices: List[int]) -> np.ndarray:
         """
-        Predict ratings for specific service edge indices.
+        🤖 THIS IS WHERE THE MODEL MAKES PREDICTIONS 🤖
+        
+        The GNN model predicts quality ratings (1-5 stars) for transport services.
+        It learned from historical data which routes/services perform better.
         
         Args:
-            service_indices: List of edge indices (0-N)
+            service_indices: List of edge indices (row numbers from edges.csv)
             
         Returns:
-            Ratings on 1-5 scale
+            Ratings on 1-5 scale (higher = better service quality)
+            
+        Note: This only predicts ratings. Service details (fare, operator, etc.) 
+        come from CSV files in get_recommendations().
         """
         if self.model is None:
             return np.array([3.0] * len(service_indices))  # Default rating
         
         model = self.artifacts['model']
-        node_features = self.artifacts['node_features']
-        edge_index = self.artifacts['edge_index']
-        edge_attr = self.artifacts['edge_attr']
+        node_features = self.artifacts['node_features']  # Pre-computed features from training
+        edge_index = self.artifacts['edge_index']        # Graph structure from training
+        edge_attr = self.artifacts['edge_attr']          # Edge features from training
         
         # Convert to tensor
         service_indices_tensor = torch.tensor(service_indices, dtype=torch.long)
         
-        # Make prediction
+        # 🔮 Make prediction using trained GNN
         model.eval()
         with torch.no_grad():
             predictions = model(node_features, edge_index, edge_attr, service_indices_tensor)
@@ -193,7 +246,7 @@ class TransportServiceGNN:
             Dictionary with recommendations sorted by rating
         """
         try:
-            # Find origin and destination in nodes
+            # 📍 Step 1: Look up locations in database (CSV)
             origin_matches = self.nodes_df[
                 self.nodes_df['name'].str.contains(origin, case=False, na=False)
             ]
@@ -218,7 +271,7 @@ class TransportServiceGNN:
             origin_name = origin_matches.iloc[0]['name']
             dest_name = dest_matches.iloc[0]['name']
             
-            # Find services between these locations
+            # 🚌 Step 2: Find which services connect these locations (from CSV)
             available_edges = self.edges_df[
                 (self.edges_df['origin_id'] == origin_id) & 
                 (self.edges_df['destination_id'] == dest_id)
@@ -237,21 +290,22 @@ class TransportServiceGNN:
             # Get temporal context
             temporal_context = self._get_temporal_context(departure_date, departure_time)
             
-            # Predict ratings using GNN (currently doesn't use temporal features)
-            # TODO: Enhance model to use temporal_context for better predictions
+            # 🤖 Step 3: Use GNN model to predict quality ratings for these services
+            # The model learned from historical data which services perform better
             ratings = self.predict_service_ratings(edge_indices)
             
-            # Adjust ratings based on service conditions (manual adjustment for now)
+            # ⏰ Step 4: Adjust ratings based on time/date (peak hours, holidays, etc.)
             if temporal_context:
                 ratings = self._adjust_ratings_for_conditions(
                     ratings, edge_indices, temporal_context
                 )
             
-            # Build recommendations
+            # 📦 Step 5: Combine CSV data (service details) with model predictions (ratings)
             recommendations = []
             for i, edge_idx in enumerate(edge_indices):
                 edge_row = available_edges.iloc[i]
                 service_id = edge_row['service_id']
+                # Get service details from CSV (operator, fare, etc.)
                 service = self.services_df[self.services_df['service_id'] == service_id].iloc[0]
                 
                 recommendations.append({

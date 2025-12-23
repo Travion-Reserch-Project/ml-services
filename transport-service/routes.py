@@ -28,10 +28,10 @@ def get_transport_service():
         from utils.transport_service_gnn import TransportServiceGNN
         model_path = 'model/transport_gnn_model.pth'
         data_path = 'data'
-
+        # Always instantiate the service; it can operate without a model
+        # (returns baseline ratings) and will still load CSV data.
         if not os.path.exists(model_path):
-            print(f"⚠️ Model not found at {model_path}")
-            return None
+            print(f"⚠️ Model not found at {model_path}. Service will start without ML model.")
 
         transport_service = TransportServiceGNN(model_path, data_path)
     return transport_service
