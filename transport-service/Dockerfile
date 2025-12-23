@@ -31,28 +31,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /root/.local /root/.local
+# Create non-root user first
+RUN useradd -m -u 1001 mluser
+
+# Copy Python packages from builder to user location
+COPY --from=builder /root/.local /home/mluser/.local
 
 # Copy application code (NO MODELS - downloaded at runtime)
 COPY app.py .
+COPY routes.py .
 COPY utils/ utils/
+COPY data/ data/
 COPY requirements.txt .
 
 # Create model directory (will be populated at runtime)
 RUN mkdir -p model
 
+# Change ownership to mluser
+RUN chown -R mluser:mluser /app /home/mluser/.local
+
 # Make sure scripts are available in PATH
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/home/mluser/.local/bin:$PATH
+ENV PYTHONPATH=/app
 
 # Environment variables for model download
 ENV MODEL_REPO=Travion-Reserch-Project/ml-services
 ENV MODEL_RELEASE_TAG=latest
 ENV MODEL_CACHE_DIR=/app/model
 
-# Create non-root user
-RUN useradd -m -u 1001 mluser && \
-    chown -R mluser:mluser /app
+# Switch to non-root user
 USER mluser
 
 EXPOSE 8001
