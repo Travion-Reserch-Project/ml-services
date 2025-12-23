@@ -82,7 +82,28 @@ def download_model_from_dagshub():
         if downloaded_file != target_file:
             downloaded_file.rename(target_file)
         
-        print(f"✅ Model downloaded successfully to {target_file}")
+        # Validate downloaded file
+        if not target_file.exists():
+            print("❌ Download failed: file not found")
+            return False
+        
+        file_size = target_file.stat().st_size
+        if file_size < 1000:  # Less than 1KB is likely an error page
+            print(f"❌ Downloaded file too small ({file_size} bytes) - likely not a model")
+            target_file.unlink()  # Delete corrupted file
+            return False
+        
+        # Try to validate it's a valid PyTorch file
+        try:
+            import torch
+            torch.load(str(target_file), map_location='cpu', weights_only=False)
+            print(f"✅ Model validated successfully")
+        except Exception as e:
+            print(f"❌ Downloaded file is not a valid PyTorch model: {e}")
+            target_file.unlink()  # Delete corrupted file
+            return False
+        
+        print(f"✅ Model downloaded successfully to {target_file} ({file_size / (1024*1024):.2f} MB)")
         return True
         
     except Exception as e:
@@ -126,4 +147,5 @@ if __name__ == "__main__":
         print("   1. Set DAGSHUB_TOKEN environment variable")
         print("   2. Include model in Docker image")
         print("   3. Mount model as volume: -v /path/to/model:/app/model")
-        sys.exit(1)
+        print("\n🔄 Container will continue - app will try to use local model if available")
+        sys.exit(0)  # Exit successfully anyway, let app handle missing model
