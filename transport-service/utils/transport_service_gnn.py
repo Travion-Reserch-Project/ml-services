@@ -99,8 +99,21 @@ class TransportServiceGNN:
                 print(f"⚠️ Model not found at {model_path}")
                 return
             
-            # Load checkpoint with sklearn classes
+            # Load checkpoint; may be a dict bundle or a raw torch module
             checkpoint = torch.load(model_path, weights_only=False, map_location='cpu')
+
+            # Guard: ensure expected training bundle structure
+            if not isinstance(checkpoint, dict):
+                print("⚠️ Incompatible checkpoint format. Expected a dict with training artifacts (node_features, edge_index, edge_attr, model_state_dict).")
+                print("   Tip: save with torch.save({'model_state_dict': model.state_dict(), 'node_features': ..., 'edge_index': ..., 'edge_attr': ...}, path)")
+                self.model = None
+                return
+            required_keys = {'node_features', 'edge_attr', 'edge_index', 'model_state_dict'}
+            if not required_keys.issubset(checkpoint.keys()):
+                missing = required_keys.difference(checkpoint.keys())
+                print(f"⚠️ Incompatible checkpoint: missing keys {missing}")
+                self.model = None
+                return
             
             # Initialize model architecture
             node_features = checkpoint['node_features']

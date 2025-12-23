@@ -36,7 +36,7 @@ def get_transport_service():
                 ensure_model_available_via_mlflow()
             except Exception as e:
                 print(f"⚠️  MLflow registry resolution failed: {e}")
-        model_path = 'model/transport_gnn_model.pth'
+        model_path = 'model/transport_gnn_model-3.pth'
         data_path = 'data'
         # Always instantiate the service; it can operate without a model
         # (returns baseline ratings) and will still load CSV data.
