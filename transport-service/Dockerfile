@@ -40,6 +40,7 @@ COPY --from=builder /root/.local /home/mluser/.local
 # Copy application code (NO MODELS - downloaded at runtime)
 COPY app.py .
 COPY routes.py .
+COPY download_model.py .
 COPY utils/ utils/
 COPY data/ data/
 COPY requirements.txt .
@@ -67,5 +68,5 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=120s --retries=3 \
   CMD curl -f http://localhost:8001/health || exit 1
 
-# Models will be downloaded on startup before app starts
-CMD ["python", "app.py"]
+# Download model from DagsHub (or use existing) then start app
+CMD ["sh", "-c", "python download_model.py && python app.py"]
