@@ -114,15 +114,40 @@ def download_model_from_dagshub():
 
 
 def check_local_model():
-    """Check if model already exists locally."""
+    """Check if a valid model already exists locally.
+
+    We verify basic integrity to avoid picking up HTML/error files or empty files.
+    """
     model_path = Path('model/transport_gnn_model.pth')
-    
-    if model_path.exists():
-        size_mb = model_path.stat().st_size / (1024 * 1024)
+
+    if not model_path.exists():
+        return False
+
+    size_bytes = model_path.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
+
+    # Basic size sanity check (must be at least ~10KB)
+    if size_bytes < 10 * 1024:
+        print(f"❌ Existing model too small: {size_bytes} bytes — ignoring and re-downloading")
+        try:
+            model_path.unlink()
+        except Exception:
+            pass
+        return False
+
+    # Try to load as a PyTorch checkpoint (without executing arbitrary code)
+    try:
+        import torch
+        torch.load(str(model_path), map_location='cpu', weights_only=False)
         print(f"✅ Model already exists: {model_path} ({size_mb:.2f} MB)")
         return True
-    
-    return False
+    except Exception as e:
+        print(f"❌ Existing model failed validation: {e} — will re-download")
+        try:
+            model_path.unlink()
+        except Exception:
+            pass
+        return False
 
 
 if __name__ == "__main__":

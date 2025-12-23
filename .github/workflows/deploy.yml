@@ -9,6 +9,7 @@ env:
   IMAGE_NAME: travion-ml-service
   DAGSHUB_REPO_OWNER: iamsahan
   DAGSHUB_REPO_NAME: ml-services
+  MONGODB_DB_NAME: transport_service
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -226,6 +227,10 @@ jobs:
               "sha": "${{ github.sha }}",
               "image": "${{ needs.build-and-push.outputs.image-tag }}",
               "triggered_by": "${{ github.actor }}",
+              "mongodb": {
+                "uri": "${{ secrets.MONGODB_URI }}",
+                "db_name": "${{ env.MONGODB_DB_NAME }}"
+              },
               "dagshub": {
                 "token": "${{ secrets.DAGSHUB_TOKEN }}",
                 "repo_owner": "${{ env.DAGSHUB_REPO_OWNER }}",

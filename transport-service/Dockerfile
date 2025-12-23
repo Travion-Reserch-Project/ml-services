@@ -63,6 +63,11 @@ ENV MODEL_REPO=iamsahan/ml-services
 ENV MODEL_RELEASE_TAG=latest
 ENV MODEL_CACHE_DIR=/app/model
 
+# MongoDB Atlas configuration (set via deployment env vars)
+# Example: -e MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/?appName=App"
+ENV DATA_SOURCE=mongodb
+ENV MONGODB_DB_NAME=transport_service
+
 # Switch to non-root user
 USER mluser
 

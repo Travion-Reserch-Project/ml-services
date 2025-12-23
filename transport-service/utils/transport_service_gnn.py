@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from torch_geometric.nn import GCNConv
+from .data_repository import DataRepository, create_repository
 
 
 class TransportGNN(nn.Module):
@@ -63,23 +64,33 @@ class TransportServiceGNN:
     Main service class integrating GNN model for transport recommendations.
     """
     
-    def __init__(self, model_path: str, data_path: str):
+    def __init__(self, model_path: str, data_path: str = None, use_mongodb: bool = False):
         """
         Initialize the transport service.
         
         Args:
             model_path: Path to trained GNN model (.pth file)
-            data_path: Path to transport data directory
+            data_path: Path to transport data directory (used for CSV; ignored if use_mongodb=True)
+            use_mongodb: If True, use MongoDB; otherwise use CSV
         """
         self.model = None
         self.artifacts = {}
-        self.nodes_df = None
-        self.services_df = None
-        self.edges_df = None
+        self.data_version = None
         
-        # Load model and data
+        # Initialize data repository (MongoDB or CSV)
+        try:
+            use_mongo = use_mongodb or os.getenv('DATA_SOURCE') == 'mongodb'
+            self.repository = create_repository(use_mongo=use_mongo)
+            self.data_version = self.repository.get_data_version()
+        except Exception as e:
+            print(f"⚠️  Repository init failed: {e}")
+            self.repository = None
+        
+        # Load model
         self._load_model(model_path)
-        self._load_data(data_path)
+        
+        # Load data through repository
+        self._load_data()
     
     def _load_model(self, model_path: str):
         """Load the trained GNN model and artifacts."""
@@ -125,51 +136,73 @@ class TransportServiceGNN:
             traceback.print_exc()
             self.model = None
     
-    def _load_data(self, data_path: str):
-        """Load transport network data."""
+    def _load_data(self):
+        """Load data from repository (MongoDB or CSV)."""
         try:
-            self.nodes_df = pd.read_csv(f"{data_path}/nodes.csv")
-            self.services_df = pd.read_csv(f"{data_path}/services.csv")
-            self.edges_df = pd.read_csv(f"{data_path}/edges.csv")
+            if self.repository is None:
+                raise RuntimeError("Data repository not initialized")
+            
+            self.nodes_df = self.repository.get_nodes()
+            self.services_df = self.repository.get_services()
+            self.edges_df = self.repository.get_edges()
             
             print(f"✅ Data loaded: {len(self.nodes_df)} nodes, "
                   f"{len(self.services_df)} services, {len(self.edges_df)} edges")
+            print(f"   Data version: {self.data_version}")
             
         except Exception as e:
             print(f"⚠️ Could not load data: {e}")
             import traceback
             traceback.print_exc()
+            self.nodes_df = None
+            self.services_df = None
+            self.edges_df = None
     
     def predict_service_ratings(self, service_indices: List[int]) -> np.ndarray:
         """
-        Predict ratings for specific service edge indices.
+        🤖 THIS IS WHERE THE MODEL MAKES PREDICTIONS 🤖
+        
+        The GNN model predicts quality ratings (1-5 stars) for transport services.
+        It learned from historical data which routes/services perform better.
         
         Args:
-            service_indices: List of edge indices (0-N)
+            service_indices: List of edge indices (row numbers from edges.csv)
             
         Returns:
-            Ratings on 1-5 scale
+            Ratings on 1-5 scale (higher = better service quality)
+            
+        Note: This only predicts ratings. Service details (fare, operator, etc.) 
+        come from CSV files in get_recommendations().
         """
         if self.model is None:
             return np.array([3.0] * len(service_indices))  # Default rating
         
         model = self.artifacts['model']
-        node_features = self.artifacts['node_features']
-        edge_index = self.artifacts['edge_index']
-        edge_attr = self.artifacts['edge_attr']
+        node_features = self.artifacts['node_features']  # Pre-computed features from training
+        edge_index = self.artifacts['edge_index']        # Graph structure from training
+        edge_attr = self.artifacts['edge_attr']          # Edge features from training
         
         # Convert to tensor
         service_indices_tensor = torch.tensor(service_indices, dtype=torch.long)
         
-        # Make prediction
+        # 🔮 Make prediction using trained GNN
         model.eval()
         with torch.no_grad():
             predictions = model(node_features, edge_index, edge_attr, service_indices_tensor)
         
-        # Convert from 0-1 scale to 1-5 scale
-        ratings = (predictions.numpy() * 4) + 1
+        # Handle scalar output (single prediction) vs. tensor (multiple)
+        if isinstance(predictions, torch.Tensor):
+            if predictions.dim() == 0:
+                predictions = predictions.unsqueeze(0)
+            predictions_array = predictions.numpy()
+        else:
+            predictions_array = np.array([predictions]) if np.isscalar(predictions) else predictions
         
-        return ratings
+        # Convert from 0-1 scale to 1-5 scale
+        ratings = (predictions_array * 4) + 1
+        
+        # Ensure output is always array
+        return np.atleast_1d(ratings)
     
     def get_recommendations(
         self, 
@@ -193,7 +226,7 @@ class TransportServiceGNN:
             Dictionary with recommendations sorted by rating
         """
         try:
-            # Find origin and destination in nodes
+            # 📍 Step 1: Look up locations in database (CSV)
             origin_matches = self.nodes_df[
                 self.nodes_df['name'].str.contains(origin, case=False, na=False)
             ]
@@ -218,11 +251,8 @@ class TransportServiceGNN:
             origin_name = origin_matches.iloc[0]['name']
             dest_name = dest_matches.iloc[0]['name']
             
-            # Find services between these locations
-            available_edges = self.edges_df[
-                (self.edges_df['origin_id'] == origin_id) & 
-                (self.edges_df['destination_id'] == dest_id)
-            ]
+            # 🚌 Step 2: Find which services connect these locations (from repository)
+            available_edges = self.repository.get_edges_between(origin_id, dest_id)
             
             if len(available_edges) == 0:
                 return {
@@ -237,21 +267,22 @@ class TransportServiceGNN:
             # Get temporal context
             temporal_context = self._get_temporal_context(departure_date, departure_time)
             
-            # Predict ratings using GNN (currently doesn't use temporal features)
-            # TODO: Enhance model to use temporal_context for better predictions
+            # 🤖 Step 3: Use GNN model to predict quality ratings for these services
+            # The model learned from historical data which services perform better
             ratings = self.predict_service_ratings(edge_indices)
             
-            # Adjust ratings based on service conditions (manual adjustment for now)
+            # ⏰ Step 4: Adjust ratings based on time/date (peak hours, holidays, etc.)
             if temporal_context:
                 ratings = self._adjust_ratings_for_conditions(
                     ratings, edge_indices, temporal_context
                 )
             
-            # Build recommendations
+            # 📦 Step 5: Combine CSV data (service details) with model predictions (ratings)
             recommendations = []
             for i, edge_idx in enumerate(edge_indices):
                 edge_row = available_edges.iloc[i]
                 service_id = edge_row['service_id']
+                # Get service details from CSV (operator, fare, etc.)
                 service = self.services_df[self.services_df['service_id'] == service_id].iloc[0]
                 
                 recommendations.append({
@@ -282,6 +313,7 @@ class TransportServiceGNN:
                 "total_services": len(recommendations),
                 "recommendations": recommendations,
                 "best_option": recommendations[0] if recommendations else None,
+                "data_version": self.data_version,
                 "note": "Ratings adjusted for time/date conditions" if temporal_context else "Base ratings (no temporal context)"
             }
             
