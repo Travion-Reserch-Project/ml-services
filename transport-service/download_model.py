@@ -7,26 +7,165 @@ Enhancements:
 - Respect MLFLOW_TRACKING_URI/USERNAME/PASSWORD if provided
 - Fallback to DAGSHUB_REPO_OWNER/NAME + DAGSHUB_TOKEN
 - Recursively search run artifacts to find a .pth file
+- Handle Git LFS pointers (DagsHub stores large files with LFS)
 """
 import os
 import sys
+import re
+import requests
 from pathlib import Path
 import mlflow
 
+# Load environment variables from .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    # Also try parent directory .env
+    parent_env = Path(__file__).parent.parent / '.env'
+    if parent_env.exists():
+        load_dotenv(parent_env)
+except ImportError:
+    pass  # dotenv not available, rely on system env vars
+
 
 def _find_pth_artifact_recursive(client: mlflow.tracking.MlflowClient, run_id: str, path: str = "") -> str:
-    """Recursively search artifacts for a .pth file and return its artifact path."""
+    """Recursively search artifacts for a .pth file and return its artifact path.
+    
+    Priority: Look for 'model/transport_gnn_model.pth' first (complete bundle),
+    otherwise find any .pth file.
+    """
     items = client.list_artifacts(run_id, path) if path else client.list_artifacts(run_id)
+    
+    # First pass: look for the canonical model bundle
     for it in items:
-        # If directory, recurse
         if it.is_dir:
             found = _find_pth_artifact_recursive(client, run_id, it.path)
             if found:
                 return found
         else:
-            if it.path.endswith('.pth'):
+            # Prefer the complete bundle
+            if 'transport_gnn_model.pth' in it.path and it.path.endswith('.pth'):
                 return it.path
+    
+    # Second pass: any .pth file as fallback
+    for it in items:
+        if not it.is_dir and it.path.endswith('.pth'):
+            return it.path
+    
     return ""
+
+
+def _is_git_lfs_pointer(file_path: Path) -> tuple[bool, dict]:
+    """Check if a file is a Git LFS pointer and extract metadata.
+    
+    Returns:
+        (is_lfs, metadata_dict) where metadata contains 'oid' and 'size'
+    """
+    try:
+        if file_path.stat().st_size > 500:  # LFS pointers are tiny
+            return False, {}
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read(500)
+        
+        # Git LFS pointer format:
+        # version https://git-lfs.github.com/spec/v1
+        # oid sha256:xxxxx
+        # size 12345
+        if 'git-lfs.github.com' not in content:
+            return False, {}
+        
+        oid_match = re.search(r'oid sha256:([a-f0-9]{64})', content)
+        size_match = re.search(r'size (\d+)', content)
+        
+        if oid_match and size_match:
+            return True, {
+                'oid': oid_match.group(1),
+                'size': int(size_match.group(1))
+            }
+        return False, {}
+    except Exception:
+        return False, {}
+
+
+def _download_lfs_file(lfs_metadata: dict, target_path: Path, dagshub_user: str, dagshub_repo: str, dagshub_token: str) -> bool:
+    """Download the actual file from DagsHub LFS storage using the OID.
+    
+    Args:
+        lfs_metadata: Dict with 'oid' and 'size' from LFS pointer
+        target_path: Where to save the downloaded file
+        dagshub_user: DagsHub username
+        dagshub_repo: Repository name
+        dagshub_token: Authentication token
+    """
+    oid = lfs_metadata['oid']
+    expected_size = lfs_metadata['size']
+    
+    # Try multiple DagsHub LFS download patterns
+    urls_to_try = [
+        # Pattern 1: Direct storage with bearer auth
+        f"https://dagshub.com/api/v1/repos/{dagshub_user}/{dagshub_repo}/storage/raw/{oid}",
+        # Pattern 2: Git LFS media endpoint
+        f"https://dagshub.com/{dagshub_user}/{dagshub_repo}.git/info/lfs/objects/{oid}",
+        # Pattern 3: DVC storage
+        f"https://dagshub.com/{dagshub_user}/{dagshub_repo}.dvc/raw/{oid}",
+    ]
+    
+    for i, url in enumerate(urls_to_try, 1):
+        try:
+            print(f"🔍 Attempt {i}/{len(urls_to_try)}: {url[:80]}...")
+            
+            headers = {}
+            auth = None
+            
+            if dagshub_token:
+                if 'api/v1' in url:
+                    # API endpoints use Bearer token
+                    headers['Authorization'] = f'Bearer {dagshub_token}'
+                else:
+                    # Git endpoints use basic auth
+                    auth = (dagshub_user, dagshub_token)
+            
+            response = requests.get(url, headers=headers, auth=auth, stream=True, timeout=300)
+            
+            if response.status_code == 404:
+                print(f"   ❌ Not found, trying next pattern...")
+                continue
+            
+            response.raise_for_status()
+            
+            print(f"   ✅ Found! Downloading ({expected_size / (1024*1024):.2f} MB)...")
+            
+            downloaded = 0
+            with open(target_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if downloaded % (5 * 1024 * 1024) == 0:  # Log every 5 MB
+                            progress = (downloaded / expected_size) * 100 if expected_size > 0 else 0
+                            print(f"      {progress:.1f}% ({downloaded / (1024*1024):.1f} MB)")
+            
+            actual_size = target_path.stat().st_size
+            print(f"   ✅ Downloaded successfully ({actual_size / (1024*1024):.2f} MB)")
+            
+            # Size validation (allow some tolerance)
+            if expected_size > 0 and abs(actual_size - expected_size) > 1024:
+                print(f"   ⚠️  Size mismatch: expected {expected_size}, got {actual_size}")
+            
+            return True
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                continue  # Try next URL
+            print(f"   ❌ HTTP error: {e}")
+            continue
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            continue
+    
+    print(f"❌ All download attempts failed for OID {oid[:16]}")
+    return False
 
 
 def download_model_from_dagshub():
@@ -56,30 +195,41 @@ def download_model_from_dagshub():
     print(f"🔍 Connecting to DagsHub MLflow: {tracking_uri}")
     
     try:
-        # Get the experiment
-        experiment = mlflow.get_experiment_by_name('transport-gnn')
-        
-        if not experiment:
-            print("⚠️  Experiment 'transport-gnn' not found")
-            return False
-        
-        # Get the latest run with the model artifact
         client = mlflow.tracking.MlflowClient()
-        runs = client.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            order_by=["start_time DESC"],
-            max_results=1
-        )
         
-        if not runs:
-            print("⚠️  No runs found in experiment")
-            return False
+        # Check if specific run ID is provided
+        specific_run_id = os.getenv('MLFLOW_RUN_ID', '').strip()
         
-        latest_run = runs[0]
-        run_id = latest_run.info.run_id
-        
-        print(f"📦 Found latest run: {run_id}")
-        
+        if specific_run_id:
+            print(f"📦 Using specified run ID: {specific_run_id}")
+            run_id = specific_run_id
+        else:
+            # Get the experiment
+            experiment = mlflow.get_experiment_by_name('transport-gnn')
+            
+            if not experiment:
+                # Try Default experiment
+                experiment = mlflow.get_experiment_by_name('Default')
+            
+            if not experiment:
+                print("⚠️  No suitable experiment found")
+                return False
+            
+            # Get the latest run with the model artifact
+            runs = client.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                order_by=["start_time DESC"],
+                max_results=1
+            )
+            
+            if not runs:
+                print("⚠️  No runs found in experiment")
+                return False
+            
+            latest_run = runs[0]
+            run_id = latest_run.info.run_id
+            
+            print(f"📦 Found latest run: {run_id}")
         # Recursively search artifacts to find a .pth file
         model_artifact = _find_pth_artifact_recursive(client, run_id)
 
@@ -101,6 +251,20 @@ def download_model_from_dagshub():
         
         if downloaded_file != target_file:
             downloaded_file.rename(target_file)
+        
+        # Check if it's a Git LFS pointer instead of actual file
+        is_lfs, lfs_metadata = _is_git_lfs_pointer(target_file)
+        if is_lfs:
+            print("📌 Downloaded file is a Git LFS pointer, fetching actual binary...")
+            
+            # Get DagsHub credentials
+            dagshub_user_lfs = os.getenv('DAGSHUB_REPO_OWNER', 'iamsahan').strip()
+            dagshub_repo_lfs = os.getenv('DAGSHUB_REPO_NAME', 'ml-services').strip()
+            dagshub_token_lfs = os.getenv('DAGSHUB_TOKEN', '').strip() or mlflow_pass
+            
+            if not _download_lfs_file(lfs_metadata, target_file, dagshub_user_lfs, dagshub_repo_lfs, dagshub_token_lfs):
+                print("❌ Failed to download LFS file")
+                return False
         
         # Validate downloaded file
         if not target_file.exists():
@@ -190,6 +354,20 @@ def download_model_from_registry(model_name: str = None, stage: str = None) -> b
         target_file = model_dir / 'transport_gnn_model.pth'
         if downloaded_file != target_file:
             downloaded_file.rename(target_file)
+        
+        # Check if it's a Git LFS pointer instead of actual file
+        is_lfs, lfs_metadata = _is_git_lfs_pointer(target_file)
+        if is_lfs:
+            print("📌 Downloaded file is a Git LFS pointer, fetching actual binary...")
+            
+            # Get DagsHub credentials
+            dagshub_user_lfs = os.getenv('DAGSHUB_REPO_OWNER', 'iamsahan').strip()
+            dagshub_repo_lfs = os.getenv('DAGSHUB_REPO_NAME', 'ml-services').strip()
+            dagshub_token_lfs = os.getenv('DAGSHUB_TOKEN', '').strip() or mlflow_pass
+            
+            if not _download_lfs_file(lfs_metadata, target_file, dagshub_user_lfs, dagshub_repo_lfs, dagshub_token_lfs):
+                print("❌ Failed to download LFS file")
+                return False
 
         # Validate like in other path
         if not target_file.exists():
