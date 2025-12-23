@@ -26,14 +26,30 @@ def get_transport_service():
     global transport_service
     if transport_service is None:
         from utils.transport_service_gnn import TransportServiceGNN
+        
         model_path = 'model/transport_gnn_model.pth'
         data_path = 'data'
-        # Always instantiate the service; it can operate without a model
-        # (returns baseline ratings) and will still load CSV data.
+        
+        # Check if MongoDB is enabled via environment
+        use_mongodb = os.getenv('DATA_SOURCE') == 'mongodb'
+        
         if not os.path.exists(model_path):
             print(f"⚠️ Model not found at {model_path}. Service will start without ML model.")
-
-        transport_service = TransportServiceGNN(model_path, data_path)
+        
+        if use_mongodb:
+            mongo_uri = os.getenv('MONGODB_URI')
+            if not mongo_uri:
+                print("⚠️ DATA_SOURCE=mongodb but MONGODB_URI not set. Falling back to CSV.")
+                use_mongodb = False
+            else:
+                print(f"✅ Using MongoDB for data source")
+        
+        # Initialize service with MongoDB or CSV backend
+        transport_service = TransportServiceGNN(
+            model_path=model_path,
+            data_path=data_path,
+            use_mongodb=use_mongodb
+        )
     return transport_service
 
 
@@ -293,12 +309,15 @@ def health_check():
     service = get_transport_service()
 
     model_exists = os.path.exists('model/transport_gnn_model.pth')
+    data_source = os.getenv('DATA_SOURCE', 'csv')
 
     return {
         "status": "healthy",
         "nlp_parser": "loaded" if parser else "not loaded",
         "gnn_model": "loaded" if (service and service.model) else ("not found" if not model_exists else "not loaded"),
         "data": "loaded" if (service and service.nodes_df is not None) else "not loaded",
+        "data_source": data_source,
+        "data_version": service.data_version if service else None,
         "endpoints": {
             "natural_language": "/api/query",
             "nlp_parse_only": "/api/parse",

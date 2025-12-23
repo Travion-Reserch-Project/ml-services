@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from torch_geometric.nn import GCNConv
+from .data_repository import DataRepository, create_repository
 
 
 class TransportGNN(nn.Module):
@@ -63,23 +64,33 @@ class TransportServiceGNN:
     Main service class integrating GNN model for transport recommendations.
     """
     
-    def __init__(self, model_path: str, data_path: str):
+    def __init__(self, model_path: str, data_path: str = None, use_mongodb: bool = False):
         """
         Initialize the transport service.
         
         Args:
             model_path: Path to trained GNN model (.pth file)
-            data_path: Path to transport data directory
+            data_path: Path to transport data directory (used for CSV; ignored if use_mongodb=True)
+            use_mongodb: If True, use MongoDB; otherwise use CSV
         """
         self.model = None
         self.artifacts = {}
-        self.nodes_df = None
-        self.services_df = None
-        self.edges_df = None
+        self.data_version = None
         
-        # Load model and data
+        # Initialize data repository (MongoDB or CSV)
+        try:
+            use_mongo = use_mongodb or os.getenv('DATA_SOURCE') == 'mongodb'
+            self.repository = create_repository(use_mongo=use_mongo)
+            self.data_version = self.repository.get_data_version()
+        except Exception as e:
+            print(f"⚠️  Repository init failed: {e}")
+            self.repository = None
+        
+        # Load model
         self._load_model(model_path)
-        self._load_data(data_path)
+        
+        # Load data through repository
+        self._load_data()
     
     def _load_model(self, model_path: str):
         """Load the trained GNN model and artifacts."""
@@ -125,67 +136,27 @@ class TransportServiceGNN:
             traceback.print_exc()
             self.model = None
     
-    def _load_data(self, data_path: str):
-        """
-        Load transport network data (the "database" of services).
-
-        Why we need CSV files even though we have a trained model:
-        - nodes.csv: Location names/IDs (e.g., "Colombo" → location_id=1)
-        - services.csv: Service details (operator, fare, duration, mode)
-        - edges.csv: Which locations connect to which (available routes)
-
-        The model predicts RATINGS for services, not the service details themselves.
-        Think: CSV = menu, Model = food critic that rates menu items.
-        """
+    def _load_data(self):
+        """Load data from repository (MongoDB or CSV)."""
         try:
-            # Resolve data directory robustly
-            candidates = []
-            env_path = os.getenv('DATA_PATH')
-            if env_path:
-                candidates.append(env_path)
-
-            # Provided path
-            candidates.append(data_path)
-
-            # Absolute from CWD
-            candidates.append(os.path.abspath(data_path))
-
-            # Module-relative path (…/utils/ → …/data)
-            module_dir = os.path.dirname(os.path.abspath(__file__))
-            candidates.append(os.path.normpath(os.path.join(module_dir, '..', 'data')))
-
-            # Common container path
-            candidates.append('/app/data')
-
-            resolved = None
-            for p in candidates:
-                try_nodes = os.path.join(p, 'nodes.csv')
-                try_services = os.path.join(p, 'services.csv')
-                try_edges = os.path.join(p, 'edges.csv')
-                if os.path.exists(try_nodes) and os.path.exists(try_services) and os.path.exists(try_edges):
-                    resolved = p
-                    break
-
-            if not resolved:
-                raise FileNotFoundError(
-                    "Could not locate data files (nodes.csv, services.csv, edges.csv). "
-                    f"Tried: {candidates}"
-                )
-
-            # Load CSVs from resolved path
-            self.nodes_df = pd.read_csv(os.path.join(resolved, 'nodes.csv'))
-            self.services_df = pd.read_csv(os.path.join(resolved, 'services.csv'))
-            self.edges_df = pd.read_csv(os.path.join(resolved, 'edges.csv'))
-
-            print(
-                f"✅ Data loaded from {resolved}: {len(self.nodes_df)} nodes, "
-                f"{len(self.services_df)} services, {len(self.edges_df)} edges"
-            )
-
+            if self.repository is None:
+                raise RuntimeError("Data repository not initialized")
+            
+            self.nodes_df = self.repository.get_nodes()
+            self.services_df = self.repository.get_services()
+            self.edges_df = self.repository.get_edges()
+            
+            print(f"✅ Data loaded: {len(self.nodes_df)} nodes, "
+                  f"{len(self.services_df)} services, {len(self.edges_df)} edges")
+            print(f"   Data version: {self.data_version}")
+            
         except Exception as e:
             print(f"⚠️ Could not load data: {e}")
             import traceback
             traceback.print_exc()
+            self.nodes_df = None
+            self.services_df = None
+            self.edges_df = None
     
     def predict_service_ratings(self, service_indices: List[int]) -> np.ndarray:
         """
@@ -219,10 +190,19 @@ class TransportServiceGNN:
         with torch.no_grad():
             predictions = model(node_features, edge_index, edge_attr, service_indices_tensor)
         
-        # Convert from 0-1 scale to 1-5 scale
-        ratings = (predictions.numpy() * 4) + 1
+        # Handle scalar output (single prediction) vs. tensor (multiple)
+        if isinstance(predictions, torch.Tensor):
+            if predictions.dim() == 0:
+                predictions = predictions.unsqueeze(0)
+            predictions_array = predictions.numpy()
+        else:
+            predictions_array = np.array([predictions]) if np.isscalar(predictions) else predictions
         
-        return ratings
+        # Convert from 0-1 scale to 1-5 scale
+        ratings = (predictions_array * 4) + 1
+        
+        # Ensure output is always array
+        return np.atleast_1d(ratings)
     
     def get_recommendations(
         self, 
@@ -271,11 +251,8 @@ class TransportServiceGNN:
             origin_name = origin_matches.iloc[0]['name']
             dest_name = dest_matches.iloc[0]['name']
             
-            # 🚌 Step 2: Find which services connect these locations (from CSV)
-            available_edges = self.edges_df[
-                (self.edges_df['origin_id'] == origin_id) & 
-                (self.edges_df['destination_id'] == dest_id)
-            ]
+            # 🚌 Step 2: Find which services connect these locations (from repository)
+            available_edges = self.repository.get_edges_between(origin_id, dest_id)
             
             if len(available_edges) == 0:
                 return {
@@ -336,6 +313,7 @@ class TransportServiceGNN:
                 "total_services": len(recommendations),
                 "recommendations": recommendations,
                 "best_option": recommendations[0] if recommendations else None,
+                "data_version": self.data_version,
                 "note": "Ratings adjusted for time/date conditions" if temporal_context else "Base ratings (no temporal context)"
             }
             
