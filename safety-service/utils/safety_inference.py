@@ -38,6 +38,7 @@ class SafetyService:
     def __init__(self, artifact_path: str):
         self.model = None
         self.scaler = None
+        self.target_encoders = None
         self.meta: Dict[str, Any] = {
             "feature_cols": FEATURE_COLS,
             "targets": RISK_TARGETS,
@@ -52,9 +53,11 @@ class SafetyService:
             if artifact.exists():
                 # Primary: single pickle with dict {model, scaler, meta}
                 obj = joblib.load(artifact)
+                
                 if isinstance(obj, dict):
                     self.model = obj.get("model")
                     self.scaler = obj.get("scaler")
+                    self.target_encoders = obj.get("target_encoders")
                     meta = obj.get("meta")
                     if isinstance(meta, dict):
                         self.meta.update(meta)
@@ -111,20 +114,18 @@ class SafetyService:
 
     def _postprocess(self, preds: np.ndarray) -> List[Dict[str, Any]]:
         """Convert model predictions to labeled format"""
-        labels = self.meta.get("labels", DEFAULT_LABELS)
-        targets = self.meta.get("targets", RISK_TARGETS)
         results: List[Dict[str, Any]] = []
-        for row in preds:
-            out: Dict[str, Any] = {}
-            for i, tgt in enumerate(targets):
-                val = row[i]
-                try:
-                    label = labels[int(val)]
-                except Exception:
-                    # If already string or out of range, pass through
-                    label = str(val)
-                out[tgt] = label
-            results.append(out)
+        for prediction in preds:
+            decoded_output: Dict[str, Any] = {}
+            targets = self.meta.get("targets", RISK_TARGETS)
+            
+            for i, col in enumerate(targets):
+                decoded_output[col] = self.target_encoders[col].inverse_transform(
+                    [prediction[i]]
+                )[0]
+
+            results.append(decoded_output)
+
         return results
 
     def predict_one(self, features: Dict[str, Any]) -> Dict[str, Any]:
@@ -135,6 +136,7 @@ class SafetyService:
     def predict_batch(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Predict risk levels for multiple locations"""
         X_df = self._to_dataframe(items)
+
         Xp = self._preprocess(X_df)
 
         if self.model is None:
