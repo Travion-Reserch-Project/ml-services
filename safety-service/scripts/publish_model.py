@@ -73,10 +73,12 @@ def publish_model(
         model = artifact.get("model")
         scaler = artifact.get("scaler")
         meta = artifact.get("meta", {})
+        target_encoders = artifact.get("target_encoders")
     else:
         model = artifact
         scaler = None
         meta = {}
+        target_encoders = None
     
     if model is None:
         print("❌ No model found in artifact")
@@ -123,6 +125,16 @@ def publish_model(
             # Clean up temp file
             os.unlink(meta_file)
         
+        if target_encoders is not None:
+            import tempfile
+            import pickle
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+                enc_file = f.name
+                pickle.dump(target_encoders, f)
+            mlflow.log_artifact(enc_file, "target_encoders")
+            os.unlink(enc_file)
+            print("📤 Logged target_encoders artifact")
+
         # Add description
         mlflow.set_tag("mlflow.note.content", description)
         mlflow.set_tag("service", "safety-service")
