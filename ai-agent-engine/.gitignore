@@ -146,7 +146,6 @@ chromadb/
 # ML model files (large binary files)
 *.pkl
 *.pickle
-*.joblib
 *.h5
 *.hdf5
 *.model
@@ -155,7 +154,7 @@ chromadb/
 *.onnx
 saved_models/
 models/*.pkl
-models/*.joblib
+
 
 # Training data (if large)
 *.csv.gz
