@@ -1,0 +1,265 @@
+# =============================================================================
+# Travion AI Engine - Git Ignore Configuration
+# =============================================================================
+
+# =============================================================================
+# Python
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# =============================================================================
+# Virtual Environments
+# =============================================================================
+
+venv/
+ENV/
+env/
+.venv/
+.env/
+pythonenv*/
+
+# =============================================================================
+# Environment Variables & Secrets
+# =============================================================================
+
+# Environment files (CRITICAL - never commit secrets)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+dev.env
+prod.env
+local.env
+
+# API keys and credentials
+*.pem
+*.key
+*.crt
+credentials.json
+secrets.json
+api_keys.json
+
+# =============================================================================
+# IDE & Editors
+# =============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# =============================================================================
+# Jupyter Notebooks
+# =============================================================================
+
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+profile_default/
+ipython_config.py
+
+# =============================================================================
+# Data & ML Models
+# =============================================================================
+
+# Vector database (ChromaDB)
+chroma_db/
+chromadb/
+*.chroma
+
+# ML model files (large binary files)
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.model
+*.pt
+*.pth
+*.onnx
+saved_models/
+models/*.pkl
+models/*.joblib
+
+# Training data (if large)
+*.csv.gz
+*.parquet
+*.feather
+
+# =============================================================================
+# Logs & Temporary Files
+# =============================================================================
+
+# Logs
+logs/
+*.log
+log/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+
+# Cache directories
+.cache/
+*.cache
+
+# =============================================================================
+# OS Generated Files
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# Documentation Build
+# =============================================================================
+
+docs/_build/
+site/
+.mkdocs/
+
+# =============================================================================
+# FastAPI / Uvicorn
+# =============================================================================
+
+# Session files
+*.session
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+# Docker volumes (if mounted locally)
+docker-data/
+.docker/
+
+# =============================================================================
+# Project Specific
+# =============================================================================
+
+# Local development overrides
+local_settings.py
+local_config.py
+
+# Uploaded files
+uploads/
+static/uploads/
+
+# Backup files
+*.bak
+*.backup
+
+# Debug files
+debug/
+*.debug
+
+# Profiling
+*.prof
+*.lprof
+
+# =============================================================================
+# Keep These Directories (with .gitkeep)
+# =============================================================================
+
+# Uncomment if you want to keep empty directories
+# !data/.gitkeep
+# !logs/.gitkeep
+# !models/.gitkeep
