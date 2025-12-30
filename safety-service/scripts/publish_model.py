@@ -1,6 +1,7 @@
 """
-Script to publish trained model to DagsHub/MLflow Model Registry
-Run after training and exporting model artifacts
+Script to publish trained safety risk ML model to DagsHub/MLflow Model Registry. 
+It allows the model to be versioned, tracked, and deployed without manually copying files.
+This is run after training and exporting model artifacts in colab
 
 Usage:
     python scripts/publish_model.py --artifact safety_risk_model.pkl
