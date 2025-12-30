@@ -1,7 +1,8 @@
 """
 Model Downloader for Safety Service
 Supports: MLflow Model Registry (DagsHub), DVC, GitHub Releases, S3, GCS, Azure
-Mirrors transport-service downloader patterns for consistency
+This code is responsible for downloading, validating, and preparing the trained safety risk model from DagsHub or GitHub so the safety-service can run predictions reliably
+
 """
 import os
 import hashlib
