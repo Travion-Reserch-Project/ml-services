@@ -28,6 +28,23 @@ from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
+
+# Sri Lanka timezone
+SL_TIMEZONE = ZoneInfo("Asia/Colombo")
+
+
+def to_local_time(dt: datetime) -> str:
+    """Convert UTC datetime to Sri Lanka local time string (HH:MM)."""
+    if dt.tzinfo is None:
+        # Assume UTC if no timezone
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    local_dt = dt.astimezone(SL_TIMEZONE)
+    return local_dt.strftime("%H:%M")
+
 logger = logging.getLogger(__name__)
 
 # Try to import astral library
@@ -167,49 +184,46 @@ class GoldenHourAgent:
             loc = self._get_location_info(location_name, lat, lng)
             s = sun(loc.observer, date=target_date)
 
-            # Calculate golden hour times
-            try:
-                gh_morning = golden_hour(loc.observer, target_date, direction=1)  # Morning
-                gh_evening = golden_hour(loc.observer, target_date, direction=-1)  # Evening
-            except ValueError:
-                # Fallback if golden hour calculation fails
-                gh_morning = (s["sunrise"] - timedelta(minutes=30), s["sunrise"] + timedelta(minutes=45))
-                gh_evening = (s["sunset"] - timedelta(minutes=45), s["sunset"] + timedelta(minutes=30))
+            # Calculate golden hour times based on sunrise/sunset
+            # Golden hour: ~30 min before sunrise/sunset to ~45 min after
+            gh_morning_start = s["sunrise"] - timedelta(minutes=30)
+            gh_morning_end = s["sunrise"] + timedelta(minutes=45)
+            gh_evening_start = s["sunset"] - timedelta(minutes=45)
+            gh_evening_end = s["sunset"] + timedelta(minutes=30)
 
             # Calculate blue hour times
-            try:
-                bh_morning = blue_hour(loc.observer, target_date, direction=1)
-                bh_evening = blue_hour(loc.observer, target_date, direction=-1)
-            except ValueError:
-                bh_morning = (s["sunrise"] - timedelta(minutes=45), s["sunrise"] - timedelta(minutes=15))
-                bh_evening = (s["sunset"] + timedelta(minutes=15), s["sunset"] + timedelta(minutes=45))
+            # Blue hour: ~45 min to ~15 min before sunrise, and ~15 min to ~45 min after sunset
+            bh_morning_start = s["sunrise"] - timedelta(minutes=45)
+            bh_morning_end = s["sunrise"] - timedelta(minutes=15)
+            bh_evening_start = s["sunset"] + timedelta(minutes=15)
+            bh_evening_end = s["sunset"] + timedelta(minutes=45)
 
             return {
                 "date": target_date.isoformat(),
                 "location": location_name,
                 "coordinates": {"lat": lat, "lng": lng},
-                "dawn": s["dawn"].strftime("%H:%M"),
-                "sunrise": s["sunrise"].strftime("%H:%M"),
-                "noon": s["noon"].strftime("%H:%M"),
-                "sunset": s["sunset"].strftime("%H:%M"),
-                "dusk": s["dusk"].strftime("%H:%M"),
+                "dawn": to_local_time(s["dawn"]),
+                "sunrise": to_local_time(s["sunrise"]),
+                "noon": to_local_time(s["noon"]),
+                "sunset": to_local_time(s["sunset"]),
+                "dusk": to_local_time(s["dusk"]),
                 "golden_hour_morning": {
-                    "start": gh_morning[0].strftime("%H:%M"),
-                    "end": gh_morning[1].strftime("%H:%M"),
-                    "duration_minutes": int((gh_morning[1] - gh_morning[0]).seconds / 60)
+                    "start": to_local_time(gh_morning_start),
+                    "end": to_local_time(gh_morning_end),
+                    "duration_minutes": 75
                 },
                 "golden_hour_evening": {
-                    "start": gh_evening[0].strftime("%H:%M"),
-                    "end": gh_evening[1].strftime("%H:%M"),
-                    "duration_minutes": int((gh_evening[1] - gh_evening[0]).seconds / 60)
+                    "start": to_local_time(gh_evening_start),
+                    "end": to_local_time(gh_evening_end),
+                    "duration_minutes": 75
                 },
                 "blue_hour_morning": {
-                    "start": bh_morning[0].strftime("%H:%M"),
-                    "end": bh_morning[1].strftime("%H:%M")
+                    "start": to_local_time(bh_morning_start),
+                    "end": to_local_time(bh_morning_end)
                 },
                 "blue_hour_evening": {
-                    "start": bh_evening[0].strftime("%H:%M"),
-                    "end": bh_evening[1].strftime("%H:%M")
+                    "start": to_local_time(bh_evening_start),
+                    "end": to_local_time(bh_evening_end)
                 },
                 "calculation_method": "astral"
             }
@@ -217,6 +231,7 @@ class GoldenHourAgent:
         except Exception as e:
             logger.error(f"Astral calculation failed: {e}")
             return self._calculate_fallback(target_date)
+
 
     def _calculate_fallback(self, target_date: date) -> Dict:
         """Fallback sun time calculation without astral."""

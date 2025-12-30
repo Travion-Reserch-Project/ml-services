@@ -354,7 +354,9 @@ class TravionAgentGraph:
             }
 
         except Exception as e:
+            import traceback
             logger.error(f"Graph execution failed: {e}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return {
                 "error": str(e),
                 "query": query,

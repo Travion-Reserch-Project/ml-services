@@ -12,6 +12,12 @@ from .requests import (
     GoldenHourRequest,
     EventImpactRequest,
     PhysicsGoldenHourRequest,
+    # Simple API requests
+    SimpleCrowdPredictionRequest,
+    SimpleGoldenHourRequest,
+    UserPreferenceScores,
+    LocationDescriptionRequest,
+    SimpleRecommendationRequest,
 )
 from .responses import (
     ChatResponse,
@@ -35,6 +41,12 @@ from .responses import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
+    # Simple API responses
+    SimpleCrowdPredictionResponse,
+    SimpleGoldenHourResponse,
+    LocationDescriptionResponse,
+    SimpleRecommendationLocation,
+    SimpleRecommendationResponse,
 )
 
 __all__ = [
@@ -46,6 +58,12 @@ __all__ = [
     "GoldenHourRequest",
     "EventImpactRequest",
     "PhysicsGoldenHourRequest",
+    # Simple API requests
+    "SimpleCrowdPredictionRequest",
+    "SimpleGoldenHourRequest",
+    "UserPreferenceScores",
+    "LocationDescriptionRequest",
+    "SimpleRecommendationRequest",
     # Responses
     "ChatResponse",
     "ItinerarySlotResponse",
@@ -68,4 +86,10 @@ __all__ = [
     "CalculationMetadata",
     "SolarPositionResponse",
     "PhysicsGoldenHourResponse",
+    # Simple API responses
+    "SimpleCrowdPredictionResponse",
+    "SimpleGoldenHourResponse",
+    "LocationDescriptionResponse",
+    "SimpleRecommendationLocation",
+    "SimpleRecommendationResponse",
 ]

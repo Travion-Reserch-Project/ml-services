@@ -176,8 +176,8 @@ class GoldenHourResponse(BaseModel):
     date: str
     sunrise: str
     sunset: str
-    golden_hour_morning: Dict[str, str]
-    golden_hour_evening: Dict[str, str]
+    golden_hour_morning: Dict[str, Any]
+    golden_hour_evening: Dict[str, Any]
     recommended_time: str
     tips: List[str]
 
@@ -673,5 +673,204 @@ class PhysicsGoldenHourResponse(BaseModel):
                     "precision_estimate_deg": 0.5
                 },
                 "warnings": []
+            }
+        }
+
+
+# =============================================================================
+# SIMPLE API RESPONSE SCHEMAS
+# =============================================================================
+
+class SimpleCrowdPredictionResponse(BaseModel):
+    """
+    Response for simple crowd prediction API.
+
+    Returns current day crowd prediction for a location.
+    """
+    location_name: str = Field(..., description="Name of the location")
+    location_type: str = Field(..., description="Inferred location type")
+    date: str = Field(..., description="Current date (YYYY-MM-DD)")
+    current_time: str = Field(..., description="Current time (HH:MM)")
+    crowd_level: float = Field(..., description="Predicted crowd level (0.0 - 1.0)")
+    crowd_percentage: float = Field(..., description="Crowd percentage (0 - 100)")
+    crowd_status: str = Field(..., description="Status: MINIMAL, LOW, MODERATE, HIGH, EXTREME")
+    recommendation: str = Field(..., description="Visit recommendation")
+    optimal_times: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Best times to visit today"
+    )
+    is_poya_day: bool = Field(default=False, description="Is today a Poya day")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya",
+                "location_type": "Heritage",
+                "date": "2026-05-01",
+                "current_time": "10:30",
+                "crowd_level": 0.65,
+                "crowd_percentage": 65.0,
+                "crowd_status": "HIGH",
+                "recommendation": "Expect queues. Book tickets in advance if possible.",
+                "optimal_times": [
+                    {"time": "06:00", "crowd_level": 0.25, "status": "LOW"},
+                    {"time": "16:00", "crowd_level": 0.35, "status": "LOW"}
+                ],
+                "is_poya_day": True,
+                "metadata": {"model_type": "ml"}
+            }
+        }
+
+
+class SimpleGoldenHourResponse(BaseModel):
+    """
+    Response for simple golden hour API.
+
+    Returns current day golden hour times for a location.
+    """
+    location_name: str = Field(..., description="Name of the location")
+    date: str = Field(..., description="Current date (YYYY-MM-DD)")
+    coordinates: Optional[Dict[str, float]] = Field(None, description="Location coordinates")
+    sunrise: str = Field(..., description="Sunrise time (HH:MM)")
+    sunset: str = Field(..., description="Sunset time (HH:MM)")
+    golden_hour_morning: Dict[str, Any] = Field(..., description="Morning golden hour window")
+    golden_hour_evening: Dict[str, Any] = Field(..., description="Evening golden hour window")
+    current_lighting: str = Field(..., description="Current lighting quality")
+    recommended_time: str = Field(..., description="Best photography time")
+    tips: List[str] = Field(default_factory=list, description="Photography tips")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya",
+                "date": "2026-05-01",
+                "coordinates": {"lat": 7.957, "lng": 80.760},
+                "sunrise": "06:05",
+                "sunset": "18:20",
+                "golden_hour_morning": {
+                    "start": "05:45",
+                    "end": "06:45"
+                },
+                "golden_hour_evening": {
+                    "start": "17:35",
+                    "end": "18:35"
+                },
+                "current_lighting": "harsh",
+                "recommended_time": "05:45 - 06:45 (Sunrise golden hour)",
+                "tips": [
+                    "Climb early to reach top before sunrise",
+                    "The lion's paws are lit beautifully at dawn"
+                ]
+            }
+        }
+
+
+class LocationDescriptionResponse(BaseModel):
+    """
+    Response for personalized location description API.
+
+    Returns a description tailored to user's preference scores.
+    """
+    location_name: str = Field(..., description="Name of the location")
+    preference_scores: Dict[str, float] = Field(..., description="User preference scores used")
+    primary_focus: str = Field(..., description="Primary focus based on highest preference score")
+    description: str = Field(..., description="Personalized description")
+    highlights: List[str] = Field(default_factory=list, description="Key highlights for this preference")
+    best_time_to_visit: Optional[str] = Field(None, description="Best time based on preference")
+    tips: List[str] = Field(default_factory=list, description="Tips based on preference")
+    related_activities: List[str] = Field(default_factory=list, description="Suggested activities")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya",
+                "preference_scores": {
+                    "history": 0.2,
+                    "adventure": 0.4,
+                    "nature": 0.9,
+                    "relaxation": 0.4
+                },
+                "primary_focus": "nature",
+                "description": "Sigiriya is a natural wonderland rising 200 meters above the surrounding plains. Beyond its famous frescoes, the rock fortress is home to diverse ecosystems including rare orchids, medicinal plants, and over 100 bird species. The water gardens at the base showcase ancient hydraulic engineering that still supports lush vegetation today.",
+                "highlights": [
+                    "Diverse bird species including Sri Lanka Blue Magpie",
+                    "Ancient water gardens with lotus pools",
+                    "Rare orchids and medicinal plants",
+                    "Panoramic views of jungle canopy"
+                ],
+                "best_time_to_visit": "Early morning (6-8 AM) for wildlife activity and cooler temperatures",
+                "tips": [
+                    "Bring binoculars for bird watching",
+                    "Visit the water gardens at dawn when lotus flowers bloom",
+                    "Look for giant squirrels in the surrounding trees"
+                ],
+                "related_activities": [
+                    "Bird watching",
+                    "Nature photography",
+                    "Botanical exploration",
+                    "Wildlife spotting"
+                ]
+            }
+        }
+
+
+# =============================================================================
+# SIMPLE RECOMMENDATION API SCHEMAS
+# =============================================================================
+
+class SimpleRecommendationLocation(BaseModel):
+    """A simplified recommended location."""
+    rank: int = Field(..., description="Recommendation rank (1 = best)")
+    name: str = Field(..., description="Location name")
+    latitude: float = Field(..., description="Location latitude")
+    longitude: float = Field(..., description="Location longitude")
+    distance_km: float = Field(..., description="Distance from user in km")
+    similarity_score: float = Field(..., description="Match score with preferences (0-1)")
+    preference_scores: Dict[str, float] = Field(default_factory=dict, description="Location preference scores")
+    is_outdoor: bool = Field(default=True, description="Whether location is outdoors")
+    description: Optional[str] = Field(None, description="Brief description of the location")
+
+
+class SimpleRecommendationResponse(BaseModel):
+    """
+    Response for simple recommendation API.
+    
+    Returns a list of recommended locations based on user preferences and location.
+    """
+    success: bool = Field(default=True, description="Request success status")
+    user_location: Dict[str, float] = Field(..., description="User's coordinates")
+    max_distance_km: float = Field(..., description="Maximum distance searched")
+    total_found: int = Field(..., description="Total locations found")
+    recommendations: List[SimpleRecommendationLocation] = Field(
+        default_factory=list,
+        description="List of recommended locations"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "user_location": {"lat": 7.2906, "lng": 80.6337},
+                "max_distance_km": 50.0,
+                "total_found": 5,
+                "recommendations": [
+                    {
+                        "rank": 1,
+                        "name": "Sigiriya",
+                        "latitude": 7.957,
+                        "longitude": 80.760,
+                        "distance_km": 45.3,
+                        "similarity_score": 0.92,
+                        "preference_scores": {
+                            "history": 1.0,
+                            "adventure": 0.4,
+                            "nature": 0.5,
+                            "relaxation": 0.1
+                        },
+                        "is_outdoor": True,
+                        "description": "Ancient rock fortress with stunning views"
+                    }
+                ]
             }
         }

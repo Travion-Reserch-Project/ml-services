@@ -1293,3 +1293,376 @@ async def global_exception_handler(request, exc):
         message="An unexpected error occurred",
         details={"exception": str(exc)} if settings.DEBUG else None
     )
+
+
+# =============================================================================
+# SIMPLE API ENDPOINTS (Current Day Predictions)
+# =============================================================================
+
+from .simple_api_endpoints import (
+    get_location_type_from_scores,
+    PREFERENCE_CONTENT,
+    SCORE_BASED_CONTENT,
+    get_highlights_for_preference,
+    get_primary_focus_from_scores,
+    get_content_from_scores,
+    get_highlights_from_scores,
+)
+from .schemas import (
+    SimpleCrowdPredictionRequest,
+    SimpleGoldenHourRequest,
+    LocationDescriptionRequest,
+    SimpleRecommendationRequest,
+    SimpleCrowdPredictionResponse,
+    SimpleGoldenHourResponse,
+    LocationDescriptionResponse,
+    SimpleRecommendationResponse,
+    SimpleRecommendationLocation,
+)
+from difflib import get_close_matches
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/simple/crowd",
+    response_model=SimpleCrowdPredictionResponse,
+    tags=["Simple APIs"],
+    summary="Current day crowd prediction by location name",
+    description="""
+    Get crowd prediction for the current day by passing just the location name.
+    
+    The API automatically:
+    - Looks up the location in the database
+    - Determines the location type (Heritage, Beach, Nature, etc.)
+    - Checks if today is a Poya day
+    - Returns current crowd prediction and optimal times
+    """
+)
+async def simple_crowd_prediction(request: SimpleCrowdPredictionRequest):
+    """Simple crowd prediction - pass location name only."""
+    try:
+        now = datetime.now()
+        today = now.date()
+        
+        recommender = get_recommender()
+        location = recommender.get_location_info(request.location_name)
+        
+        if not location:
+            all_locations = recommender.locations_df["Location_Name"].tolist() if not recommender.locations_df.empty else []
+            matches = get_close_matches(request.location_name, all_locations, n=1, cutoff=0.6)
+            if matches:
+                location = recommender.get_location_info(matches[0])
+        
+        if not location:
+            raise HTTPException(status_code=404, detail=f"Location not found: {request.location_name}")
+        
+        location_type = get_location_type_from_scores(location.preference_scores)
+        
+        event_sentinel = get_event_sentinel()
+        event_info = event_sentinel.get_event_info(now)
+        is_poya = event_info.get("is_poya", False)
+        is_school_holiday = event_info.get("is_school_holiday", False)
+        
+        crowdcast = get_crowdcast()
+        prediction = crowdcast.predict(
+            location_type=location_type,
+            target_datetime=now,
+            is_poya=is_poya,
+            is_school_holiday=is_school_holiday
+        )
+        
+        optimal_times = crowdcast.find_optimal_time(
+            location_type, now, is_poya=is_poya,
+            is_school_holiday=is_school_holiday, preference="low_crowd"
+        )
+        
+        return SimpleCrowdPredictionResponse(
+            location_name=location.name,
+            location_type=location_type,
+            date=today.isoformat(),
+            current_time=now.strftime("%H:%M"),
+            crowd_level=prediction["crowd_level"],
+            crowd_percentage=prediction["crowd_percentage"],
+            crowd_status=prediction["crowd_status"],
+            recommendation=prediction["recommendation"],
+            optimal_times=optimal_times[:3],
+            is_poya_day=is_poya,
+            metadata={"model_type": prediction.get("model_type", "ml"),
+                     "is_school_holiday": is_school_holiday,
+                     "coordinates": {"lat": location.lat, "lng": location.lng}}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Simple crowd prediction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/simple/golden-hour",
+    response_model=SimpleGoldenHourResponse,
+    tags=["Simple APIs"],
+    summary="Current day golden hour by location name",
+    description="""
+    Get golden hour times for the current day by passing just the location name.
+    
+    The API automatically:
+    - Looks up the location coordinates
+    - Calculates sunrise, sunset, and golden hour windows
+    - Assesses current lighting quality
+    - Provides photography tips for the location
+    """
+)
+async def simple_golden_hour(request: SimpleGoldenHourRequest):
+    """Simple golden hour - pass location name only."""
+    try:
+        now = datetime.now()
+        today = now.date()
+        
+        golden_hour = get_golden_hour_agent()
+        spot = golden_hour.PHOTOGRAPHY_SPOTS.get(request.location_name)
+        lat, lng = None, None
+        location_name = request.location_name
+        
+        if spot:
+            lat, lng = spot["lat"], spot["lng"]
+        else:
+            recommender = get_recommender()
+            location = recommender.get_location_info(request.location_name)
+            
+            if not location:
+                all_locations = recommender.locations_df["Location_Name"].tolist() if not recommender.locations_df.empty else []
+                all_spots = list(golden_hour.PHOTOGRAPHY_SPOTS.keys())
+                all_options = all_locations + all_spots
+                matches = get_close_matches(request.location_name, all_options, n=1, cutoff=0.6)
+                
+                if matches:
+                    if matches[0] in golden_hour.PHOTOGRAPHY_SPOTS:
+                        spot = golden_hour.PHOTOGRAPHY_SPOTS[matches[0]]
+                        lat, lng = spot["lat"], spot["lng"]
+                        location_name = matches[0]
+                    else:
+                        location = recommender.get_location_info(matches[0])
+                        location_name = matches[0]
+            
+            if location:
+                lat, lng = location.lat, location.lng
+        
+        if lat is None or lng is None:
+            raise HTTPException(status_code=404, detail=f"Location not found: {request.location_name}")
+        
+        sun_times = golden_hour.get_sun_times(today, lat, lng, location_name)
+        lighting = golden_hour.get_lighting_quality(now, lat, lng)
+        photo_times = golden_hour.get_optimal_photo_times(location_name, today)
+        
+        return SimpleGoldenHourResponse(
+            location_name=location_name,
+            date=today.isoformat(),
+            coordinates={"lat": lat, "lng": lng},
+            sunrise=sun_times["sunrise"],
+            sunset=sun_times["sunset"],
+            golden_hour_morning=sun_times["golden_hour_morning"],
+            golden_hour_evening=sun_times["golden_hour_evening"],
+            current_lighting=lighting["quality"],
+            recommended_time=photo_times["recommended_time"],
+            tips=photo_times.get("tips", [])
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Simple golden hour error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/simple/description",
+    response_model=LocationDescriptionResponse,
+    tags=["Simple APIs"],
+    summary="Generate personalized location description",
+    description="""
+    Generate a description of a location tailored to the user's preference scores.
+
+    Pass preference scores (0.0 - 1.0) for:
+    - history: Interest in historical/cultural sites
+    - adventure: Interest in adventure activities
+    - nature: Interest in nature/wildlife
+    - relaxation: Interest in relaxation/spiritual experiences
+
+    The API uses these scores to determine what aspects of the location
+    to emphasize in the generated description.
+
+    Example: High nature score (0.9) for Sigiriya focuses on flora, fauna, ecosystems.
+    """
+)
+async def generate_location_description(request: LocationDescriptionRequest):
+    """Generate personalized location description based on preference scores."""
+    try:
+        recommender = get_recommender()
+        location = recommender.get_location_info(request.location_name)
+
+        if not location:
+            all_locations = recommender.locations_df["Location_Name"].tolist() if not recommender.locations_df.empty else []
+            matches = get_close_matches(request.location_name, all_locations, n=1, cutoff=0.6)
+            if matches:
+                location = recommender.get_location_info(matches[0])
+
+        if not location:
+            raise HTTPException(status_code=404, detail=f"Location not found: {request.location_name}")
+
+        # Extract preference scores from request
+        pref_scores = {
+            "history": request.preference.history,
+            "adventure": request.preference.adventure,
+            "nature": request.preference.nature,
+            "relaxation": request.preference.relaxation
+        }
+
+        # Get primary focus and content based on scores
+        primary_focus = get_primary_focus_from_scores(pref_scores)
+        pref_content = get_content_from_scores(pref_scores)
+
+        ranker = get_ranker_agent()
+        description = ""
+
+        if ranker.llm:
+            try:
+                focus_text = ", ".join(pref_content["focus"])
+
+                # Build preference description for prompt
+                pref_desc = []
+                if pref_scores["nature"] >= 0.6:
+                    pref_desc.append("nature and wildlife enthusiast")
+                if pref_scores["history"] >= 0.6:
+                    pref_desc.append("history and culture lover")
+                if pref_scores["adventure"] >= 0.6:
+                    pref_desc.append("adventure seeker")
+                if pref_scores["relaxation"] >= 0.6:
+                    pref_desc.append("seeking relaxation and peace")
+
+                user_type = " who is also ".join(pref_desc) if pref_desc else f"{primary_focus} enthusiast"
+
+                prompt = f"""Generate a personalized description of {location.name} in Sri Lanka for a traveler who is a {user_type}.
+
+User Preference Scores:
+- Nature interest: {pref_scores['nature']:.1f}
+- History interest: {pref_scores['history']:.1f}
+- Adventure interest: {pref_scores['adventure']:.1f}
+- Relaxation interest: {pref_scores['relaxation']:.1f}
+
+Primary focus should be on: {focus_text}
+
+Write 3-4 sentences that blend these interests, emphasizing the primary focus ({primary_focus}). Be specific and evocative about {location.name}."""
+
+                response = await ranker.llm.ainvoke([
+                    {"role": "system", "content": "You are Travion, an expert Sri Lankan tour guide. Generate engaging, personalized descriptions that match user preferences."},
+                    {"role": "user", "content": prompt}
+                ])
+                description = response.content.strip()
+            except Exception as llm_err:
+                logger.warning(f"LLM description failed: {llm_err}")
+
+        if not description:
+            focus_text = ", ".join(pref_content["focus"][:3])
+            description = f"{location.name} offers wonderful experiences focusing on {focus_text}. This destination in Sri Lanka is perfect for those interested in {primary_focus}-related activities."
+
+        highlights = get_highlights_from_scores(pref_scores)
+        tips = [
+            f"Best experienced during {pref_content['best_time'].lower()}",
+            "Bring comfortable shoes for walking",
+            "Carry water and sun protection"
+        ]
+
+        return LocationDescriptionResponse(
+            location_name=location.name,
+            preference_scores=pref_scores,
+            primary_focus=primary_focus,
+            description=description,
+            highlights=highlights,
+            best_time_to_visit=pref_content["best_time"],
+            tips=tips,
+            related_activities=pref_content["activities"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Location description error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/simple/recommend",
+    response_model=SimpleRecommendationResponse,
+    tags=["Simple APIs"],
+    summary="Get simple location recommendations",
+    description="""
+    Get location recommendations by passing user location and preferences.
+
+    The API:
+    - Accepts user's current coordinates (lat, lng)
+    - Accepts preference scores (history, adventure, nature, relaxation)
+    - Accepts maximum distance in km
+    - Returns a ranked list of recommended locations
+
+    This is a simplified version of the full recommendation API that doesn't
+    require authentication and uses content-based filtering.
+    """
+)
+async def simple_recommend(request: SimpleRecommendationRequest):
+    """Simple recommendation - pass location, preferences, and max distance."""
+    try:
+        recommender = get_recommender()
+
+        # Convert preferences to vector format
+        user_prefs = {
+            "history": request.preferences.history,
+            "adventure": request.preferences.adventure,
+            "nature": request.preferences.nature,
+            "relaxation": request.preferences.relaxation
+        }
+
+        # Get candidates using the recommender
+        candidates = recommender.get_candidates(
+            user_preferences=user_prefs,
+            user_lat=request.latitude,
+            user_lng=request.longitude,
+            top_k=request.top_k,
+            max_distance_km=request.max_distance_km,
+            outdoor_only=False,
+            exclude_locations=[]
+        )
+
+        if not candidates:
+            return SimpleRecommendationResponse(
+                success=True,
+                user_location={"lat": request.latitude, "lng": request.longitude},
+                max_distance_km=request.max_distance_km,
+                total_found=0,
+                recommendations=[]
+            )
+
+        # Build response
+        recommendations = []
+        for idx, candidate in enumerate(candidates, start=1):
+            recommendations.append(SimpleRecommendationLocation(
+                rank=idx,
+                name=candidate.name,
+                latitude=candidate.lat,
+                longitude=candidate.lng,
+                distance_km=round(candidate.distance_km, 2),
+                similarity_score=round(candidate.similarity_score, 3),
+                preference_scores=candidate.preference_scores,
+                is_outdoor=candidate.is_outdoor,
+                description=None
+            ))
+
+        return SimpleRecommendationResponse(
+            success=True,
+            user_location={"lat": request.latitude, "lng": request.longitude},
+            max_distance_km=request.max_distance_km,
+            total_found=len(recommendations),
+            recommendations=recommendations
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Simple recommendation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

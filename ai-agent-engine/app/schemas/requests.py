@@ -270,3 +270,193 @@ class PhysicsGoldenHourRequest(BaseModel):
                 "include_current_position": True
             }
         }
+
+
+# =============================================================================
+# SIMPLE API REQUESTS (Current Day Predictions)
+# =============================================================================
+
+class SimpleCrowdPredictionRequest(BaseModel):
+    """
+    Simple crowd prediction request - pass location name only.
+
+    Uses current day and automatically determines location type from the
+    locations database.
+
+    Attributes:
+        location_name: Name of the location (e.g., "Sigiriya", "Galle Fort")
+    """
+    location_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        description="Location name (supports fuzzy matching)",
+        examples=["Sigiriya", "Galle Fort", "Temple of the Tooth", "Ella"]
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya"
+            }
+        }
+
+
+class SimpleGoldenHourRequest(BaseModel):
+    """
+    Simple golden hour prediction request - pass location name only.
+
+    Uses current day and automatically looks up coordinates from the
+    locations database or known photography spots.
+
+    Attributes:
+        location_name: Name of the location (e.g., "Sigiriya", "Nine Arches Bridge")
+    """
+    location_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        description="Location name (supports fuzzy matching)",
+        examples=["Sigiriya", "Nine Arches Bridge", "Galle Fort", "Mirissa Beach"]
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya"
+            }
+        }
+
+
+class UserPreferenceScores(BaseModel):
+    """User preference scores for personalized content."""
+    history: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Interest in historical/cultural sites (0.0 - 1.0)"
+    )
+    adventure: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Interest in adventure activities (0.0 - 1.0)"
+    )
+    nature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Interest in nature/wildlife (0.0 - 1.0)"
+    )
+    relaxation: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Interest in relaxation/spiritual experiences (0.0 - 1.0)"
+    )
+
+
+class LocationDescriptionRequest(BaseModel):
+    """
+    Request for generating a personalized location description.
+
+    Generates a description of the location tailored to the user's preference
+    scores. The API uses these scores to determine what aspects of the location
+    to emphasize in the description.
+
+    For example:
+    - High nature score (0.9) for Sigiriya -> focuses on flora, fauna, ecosystems
+    - High history score (0.9) for Sigiriya -> focuses on ancient kings, frescoes
+
+    Attributes:
+        location_name: Name of the location
+        preference: User's preference scores (history, adventure, nature, relaxation)
+    """
+    location_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        description="Location name",
+        examples=["Sigiriya", "Temple of the Tooth", "Yala National Park"]
+    )
+    preference: UserPreferenceScores = Field(
+        ...,
+        description="User preference scores for personalized content"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "location_name": "Sigiriya",
+                "preference": {
+                    "history": 0.2,
+                    "adventure": 0.4,
+                    "nature": 0.9,
+                    "relaxation": 0.4
+                }
+            }
+        }
+
+
+class SimpleRecommendationRequest(BaseModel):
+    """
+    Simple recommendation request - pass user location and preferences.
+
+    Returns a list of recommended locations based on user location, preferences,
+    and maximum distance.
+
+    Attributes:
+        latitude: User's current latitude
+        longitude: User's current longitude
+        preferences: User's preference scores (history, adventure, nature, relaxation)
+        max_distance_km: Maximum distance from user's location in km
+        top_k: Number of recommendations to return (default: 5)
+    """
+    latitude: float = Field(
+        ...,
+        ge=5.0,
+        le=10.0,
+        description="User's latitude (Sri Lanka bounds: 5.0 - 10.0)",
+        examples=[7.2906, 6.9271]
+    )
+    longitude: float = Field(
+        ...,
+        ge=79.0,
+        le=82.0,
+        description="User's longitude (Sri Lanka bounds: 79.0 - 82.0)",
+        examples=[80.6337, 79.8612]
+    )
+    preferences: UserPreferenceScores = Field(
+        default_factory=lambda: UserPreferenceScores(),
+        description="User preference scores for personalized recommendations"
+    )
+    max_distance_km: float = Field(
+        default=50.0,
+        ge=1.0,
+        le=500.0,
+        description="Maximum distance from user's location in km",
+        examples=[20.0, 50.0, 100.0]
+    )
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of recommendations to return",
+        examples=[5, 10]
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "latitude": 7.2906,
+                "longitude": 80.6337,
+                "preferences": {
+                    "history": 0.9,
+                    "adventure": 0.4,
+                    "nature": 0.1,
+                    "relaxation": 0.4
+                },
+                "max_distance_km": 50.0,
+                "top_k": 5
+            }
+        }
