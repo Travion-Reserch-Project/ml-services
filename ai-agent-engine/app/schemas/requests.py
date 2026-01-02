@@ -5,8 +5,9 @@ This module defines Pydantic models for API request validation.
 All requests are validated before processing by the agent.
 """
 
+from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime as dt
 
 
@@ -34,6 +35,58 @@ class ChatRequest(BaseModel):
         False,
         description="Whether to stream the response"
     )
+
+
+class LocationChatRequest(BaseModel):
+    """
+    Request model for location-specific chat endpoint.
+
+    This endpoint focuses the RAG retrieval on a specific location,
+    providing contextual responses about that location from the knowledge base.
+
+    Attributes:
+        message: User's query or message about the location
+        thread_id: Optional conversation thread ID for context persistence
+        location_name: The specific location to focus retrieval on
+        user_preferences: Optional user preference scores for personalized responses
+    """
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="User's query about the location",
+        examples=["What's the best time to visit?", "Tell me about the history"]
+    )
+    thread_id: Optional[str] = Field(
+        None,
+        description="Conversation thread ID for context persistence"
+    )
+    location_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        description="The specific location to focus on",
+        examples=["Sigiriya Rock Fortress", "Temple of the Tooth", "Yala National Park"]
+    )
+    user_preferences: Optional[UserPreferenceScores] = Field(
+        None,
+        description="User preference scores for personalized responses"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "What's the best time to visit?",
+                "thread_id": "chat_abc123",
+                "location_name": "Sigiriya Rock Fortress",
+                "user_preferences": {
+                    "history": 0.8,
+                    "adventure": 0.5,
+                    "nature": 0.6,
+                    "relaxation": 0.3
+                }
+            }
+        }
 
 
 class PlanRequest(BaseModel):

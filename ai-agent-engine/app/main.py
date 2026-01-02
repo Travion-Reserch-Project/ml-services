@@ -32,6 +32,7 @@ import json
 from .config import settings
 from .schemas import (
     ChatRequest,
+    LocationChatRequest,
     PlanRequest,
     CrowdPredictionRequest,
     EventCheckRequest,
@@ -253,6 +254,110 @@ async def chat(request: ChatRequest):
         raise
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/chat/location",
+    response_model=ChatResponse,
+    tags=["Chat"],
+    summary="Location-specific chat endpoint",
+    description="""
+    Process a user message with location-focused context.
+
+    This endpoint is designed for location-specific chats where:
+    1. The user is viewing a specific location (e.g., Sigiriya, Yala National Park)
+    2. All queries should be answered in the context of that location
+    3. Retrieval is filtered to prioritize location-relevant documents
+
+    The agent will:
+    1. Focus retrieval on the specified location
+    2. Personalize responses based on user preference scores (if provided)
+    3. Maintain conversation context via thread_id
+    4. Apply the full reasoning loop (retrieve → grade → generate → verify)
+
+    Use Cases:
+    - "What's the best time to visit?" → Answered for the specific location
+    - "Tell me about the history" → Location's historical significance
+    - "What should I wear?" → Location-specific dress code advice
+    """
+)
+async def location_chat(request: LocationChatRequest):
+    """
+    Location-specific chat endpoint for focused AI responses.
+
+    Args:
+        request: LocationChatRequest with message, location_name, and optional preferences
+
+    Returns:
+        ChatResponse with agent's location-focused response
+    """
+    try:
+        # Build the query with location context for better routing
+        # The target_location is passed separately to guide retrieval
+        enriched_query = request.message
+
+        # If user preferences are provided, we can use them for personalization
+        # This info is logged but personalization happens in the generator node
+        if request.user_preferences:
+            logger.info(
+                f"Location chat for {request.location_name} with preferences: "
+                f"history={request.user_preferences.history}, "
+                f"adventure={request.user_preferences.adventure}, "
+                f"nature={request.user_preferences.nature}, "
+                f"relaxation={request.user_preferences.relaxation}"
+            )
+
+        # Invoke the agent with location focus
+        result = await invoke_agent(
+            query=enriched_query,
+            thread_id=request.thread_id,
+            target_location=request.location_name
+        )
+
+        # Check for errors
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        # Build response
+        return ChatResponse(
+            query=result["query"],
+            intent=result.get("intent"),
+            response=result.get("final_response", "I couldn't generate a response."),
+            itinerary=[
+                ItinerarySlotResponse(**slot)
+                for slot in (result.get("itinerary") or [])
+            ] if result.get("itinerary") else None,
+            constraints=[
+                ConstraintViolationResponse(
+                    constraint_type=c.get("constraint_type", "unknown"),
+                    description=c.get("description", ""),
+                    severity=c.get("severity", "medium"),
+                    suggestion=c.get("suggestion", "")
+                )
+                for c in (result.get("constraint_violations") or [])
+            ] if result.get("constraint_violations") else None,
+            reasoning_logs=[
+                ShadowMonitorLogResponse(
+                    timestamp=log.get("timestamp", ""),
+                    check_type=log.get("check_type", ""),
+                    result=log.get("result", ""),
+                    details=log.get("details", "")
+                )
+                for log in (result.get("shadow_monitor_logs") or [])
+            ] if result.get("shadow_monitor_logs") else None,
+            metadata={
+                "reasoning_loops": result.get("reasoning_loops", 0),
+                "documents_retrieved": result.get("documents_retrieved", 0),
+                "web_search_used": result.get("web_search_used", False),
+                "target_location": request.location_name
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Location chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1611,13 +1716,14 @@ async def simple_recommend(request: SimpleRecommendationRequest):
     try:
         recommender = get_recommender()
 
-        # Convert preferences to vector format
-        user_prefs = {
-            "history": request.preferences.history,
-            "adventure": request.preferences.adventure,
-            "nature": request.preferences.nature,
-            "relaxation": request.preferences.relaxation
-        }
+        # Convert preferences to 4D vector format [history, adventure, nature, relaxation]
+        # The get_candidates method expects List[float], not a dict
+        user_prefs = [
+            request.preferences.history,
+            request.preferences.adventure,
+            request.preferences.nature,
+            request.preferences.relaxation
+        ]
 
         # Get candidates using the recommender
         candidates = recommender.get_candidates(

@@ -171,13 +171,30 @@ Please provide a helpful response based on the context above."""
     else:
         user_message = query
 
+    # Build conversation history from state messages
+    # This enables multi-turn conversation memory
+    messages = state.get("messages", [])
+    conversation_messages = [{"role": "system", "content": system_prompt}]
+
+    # Add previous messages from history (excluding the current query)
+    # Messages are stored as [user, assistant, user, assistant, ...]
+    # We include previous turns to maintain conversation context
+    if len(messages) > 1:
+        # Include up to last 10 messages (5 turns) for context
+        history_messages = messages[:-1][-10:]
+        for msg in history_messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ["user", "assistant"] and content:
+                conversation_messages.append({"role": role, "content": content})
+
+    # Add current user message (with context if applicable)
+    conversation_messages.append({"role": "user", "content": user_message})
+
     # Generate response
     if llm:
         try:
-            response = await llm.ainvoke([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ])
+            response = await llm.ainvoke(conversation_messages)
             generated_text = response.content
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
@@ -199,9 +216,14 @@ Please provide a helpful response based on the context above."""
         action_taken=None
     )
 
+    # Add assistant message to conversation history for future turns
+    # This enables the conversation memory to persist across messages
+    assistant_message = {"role": "assistant", "content": generated_text}
+
     return {
         **state,
         "generated_response": generated_text,
+        "messages": [assistant_message],  # Will be appended via operator.add
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry]
     }
 

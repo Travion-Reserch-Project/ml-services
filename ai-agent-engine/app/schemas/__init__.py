@@ -6,6 +6,7 @@ This package contains all request and response models for the API.
 
 from .requests import (
     ChatRequest,
+    LocationChatRequest,
     PlanRequest,
     CrowdPredictionRequest,
     EventCheckRequest,
@@ -52,6 +53,7 @@ from .responses import (
 __all__ = [
     # Requests
     "ChatRequest",
+    "LocationChatRequest",
     "PlanRequest",
     "CrowdPredictionRequest",
     "EventCheckRequest",

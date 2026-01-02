@@ -305,7 +305,8 @@ class TravionAgentGraph:
     async def invoke(
         self,
         query: str,
-        thread_id: Optional[str] = None
+        thread_id: Optional[str] = None,
+        target_location: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute the agent workflow for a user query.
@@ -313,6 +314,7 @@ class TravionAgentGraph:
         Args:
             query: User's input message
             thread_id: Optional thread ID for conversation persistence
+            target_location: Optional location name to focus retrieval on
 
         Returns:
             Dict with final state including response and logs
@@ -320,6 +322,9 @@ class TravionAgentGraph:
         Example:
             >>> result = await agent.invoke("What's special about Sigiriya?")
             >>> print(result["final_response"])
+
+            >>> # Location-specific chat
+            >>> result = await agent.invoke("What's the best time to visit?", target_location="Sigiriya")
         """
         if not self.graph:
             return {
@@ -327,8 +332,8 @@ class TravionAgentGraph:
                 "final_response": "I'm having trouble processing your request. Please try again."
             }
 
-        # Create initial state
-        initial_state = create_initial_state(query)
+        # Create initial state with optional target location
+        initial_state = create_initial_state(query, target_location=target_location)
 
         # Configure thread (always required when using checkpointer)
         config = {
@@ -366,7 +371,8 @@ class TravionAgentGraph:
     async def stream(
         self,
         query: str,
-        thread_id: Optional[str] = None
+        thread_id: Optional[str] = None,
+        target_location: Optional[str] = None
     ):
         """
         Stream the agent execution step by step.
@@ -377,6 +383,7 @@ class TravionAgentGraph:
         Args:
             query: User's input message
             thread_id: Optional thread ID
+            target_location: Optional location name to focus retrieval on
 
         Yields:
             Dict with node name and current state
@@ -385,7 +392,7 @@ class TravionAgentGraph:
             yield {"error": "Graph not initialized"}
             return
 
-        initial_state = create_initial_state(query)
+        initial_state = create_initial_state(query, target_location=target_location)
         config = {
             "configurable": {
                 "thread_id": thread_id or str(uuid.uuid4())
@@ -459,16 +466,21 @@ def get_agent() -> TravionAgentGraph:
     return _agent
 
 
-async def invoke_agent(query: str, thread_id: Optional[str] = None) -> Dict:
+async def invoke_agent(
+    query: str,
+    thread_id: Optional[str] = None,
+    target_location: Optional[str] = None
+) -> Dict:
     """
     Convenience function to invoke the agent.
 
     Args:
         query: User's query
         thread_id: Optional conversation thread ID
+        target_location: Optional location name to focus retrieval on
 
     Returns:
         Dict with agent response
     """
     agent = get_agent()
-    return await agent.invoke(query, thread_id)
+    return await agent.invoke(query, thread_id, target_location=target_location)

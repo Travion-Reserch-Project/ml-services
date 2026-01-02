@@ -181,8 +181,8 @@ class RerankerAgent:
 
         # Import GoldenHour
         try:
-            from ..tools.golden_hour import get_golden_hour
-            self.golden_hour = get_golden_hour()
+            from ..tools.golden_hour import get_golden_hour_agent
+            self.golden_hour = get_golden_hour_agent()
             logger.info("GoldenHour tool connected")
         except Exception as e:
             logger.warning(f"GoldenHour not available: {e}")

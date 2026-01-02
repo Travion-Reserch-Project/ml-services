@@ -197,12 +197,16 @@ class GraphState(TypedDict):
     error: Optional[str]
 
 
-def create_initial_state(user_query: str) -> GraphState:
+def create_initial_state(
+    user_query: str,
+    target_location: Optional[str] = None
+) -> GraphState:
     """
     Factory function to create a fresh GraphState for a new query.
 
     Args:
         user_query: The user's input message
+        target_location: Optional location to focus retrieval on (for location-specific chats)
 
     Returns:
         GraphState: Initialized state ready for graph execution
@@ -211,6 +215,10 @@ def create_initial_state(user_query: str) -> GraphState:
         >>> state = create_initial_state("Plan a trip to Jungle Beach next full moon")
         >>> state["user_query"]
         'Plan a trip to Jungle Beach next full moon'
+
+        >>> state = create_initial_state("What's the best time to visit?", target_location="Sigiriya")
+        >>> state["target_location"]
+        'Sigiriya'
     """
     return GraphState(
         messages=[{"role": "user", "content": user_query}],
@@ -223,7 +231,7 @@ def create_initial_state(user_query: str) -> GraphState:
         shadow_monitor_logs=[],
         constraint_violations=[],
         target_date=None,
-        target_location=None,
+        target_location=target_location,
         target_coordinates=None,
         generated_response=None,
         final_response=None,
