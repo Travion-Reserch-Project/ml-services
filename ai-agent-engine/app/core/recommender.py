@@ -20,6 +20,8 @@ Mathematical Foundations:
 
 import logging
 import math
+import random
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
@@ -368,12 +370,37 @@ class HybridRecommender:
         # Sort by combined score (descending)
         candidates.sort(key=lambda x: x.combined_score, reverse=True)
 
-        # Return top-K
-        top_candidates = candidates[:top_k]
+        # Add diversity: Group candidates by score buckets and shuffle within buckets
+        # This prevents always returning the exact same results
+        import random
+        if len(candidates) > top_k:
+            # Take top candidates with some buffer for diversity
+            buffer_size = min(len(candidates), top_k * 3)
+            candidate_pool = candidates[:buffer_size]
+            
+            # Group by score ranges (0.05 buckets)
+            from collections import defaultdict
+            score_buckets = defaultdict(list)
+            for c in candidate_pool:
+                bucket = round(c.combined_score * 20) / 20  # 0.05 granularity
+                score_buckets[bucket].append(c)
+            
+            # Shuffle within each bucket to add variety
+            for bucket_candidates in score_buckets.values():
+                random.shuffle(bucket_candidates)
+            
+            # Reconstruct sorted list with shuffled buckets
+            diversified = []
+            for bucket_key in sorted(score_buckets.keys(), reverse=True):
+                diversified.extend(score_buckets[bucket_key])
+            
+            top_candidates = diversified[:top_k]
+        else:
+            top_candidates = candidates[:top_k]
 
         logger.info(
             f"Generated {len(top_candidates)} candidates from {len(candidates)} "
-            f"within {max_dist}km"
+            f"within {max_dist}km (with diversity)"
         )
 
         return top_candidates
