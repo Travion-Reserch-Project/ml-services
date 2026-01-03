@@ -231,9 +231,13 @@ class SafetyService:
                 base += int(row.get('is_tourist_place', 0))  # Tourist hotspots
                 base += int(row.get('is_beach', 0))  # Beach locations
                 
-                # Night hours (20:00-04:00) increase risk
+                # Evening/night hours (17:00-23:59 or 00:00-05:00) increase risk
                 hour = int(row.get('hour', 12))
-                if hour >= 20 or hour <= 4:
+                if hour >= 17 or hour <= 5:
+                    base += 1
+                
+                # Weekend increases risk
+                if int(row.get('is_weekend', 0)) == 1:
                     base += 1
                 
                 # Absence of police increases risk
@@ -241,9 +245,10 @@ class SafetyService:
                     base += 1
                 
                 # Map accumulated risk score to categorical label
+                # 0-1: Low, 2-3: Medium, 4+: High
                 if base <= 1:
                     label = "Low"
-                elif base == 2:
+                elif base <= 3:
                     label = "Medium"
                 else:
                     label = "High"
