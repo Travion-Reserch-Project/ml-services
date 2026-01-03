@@ -19,18 +19,28 @@ class DataRepository(ABC):
         pass
 
     @abstractmethod
-    def get_services(self) -> pd.DataFrame:
-        """Fetch all transport services."""
-        pass
-
-    @abstractmethod
     def get_edges(self) -> pd.DataFrame:
         """Fetch all routes (edges between nodes and services)."""
         pass
 
     @abstractmethod
+    def get_services(self) -> pd.DataFrame:
+        """Fetch all service-level metadata (operator, mode, fares, durations)."""
+        pass
+
+    @abstractmethod
     def get_edges_between(self, origin_id: int, dest_id: int) -> pd.DataFrame:
         """Fetch edges (routes) between two locations."""
+        pass
+
+    @abstractmethod
+    def get_service_metrics(self) -> pd.DataFrame:
+        """Fetch country-level baseline metrics (reliability/crowding by time period)."""
+        pass
+
+    @abstractmethod
+    def get_timetables(self) -> pd.DataFrame:
+        """Fetch timetable schedules for services."""
         pass
 
     @abstractmethod
@@ -48,8 +58,16 @@ class CSVRepository(DataRepository):
 
         # Load once at init
         self._nodes_df = pd.read_csv(os.path.join(self.data_path, "nodes.csv"))
-        self._services_df = pd.read_csv(os.path.join(self.data_path, "services.csv"))
         self._edges_df = pd.read_csv(os.path.join(self.data_path, "edges.csv"))
+
+        services_path = os.path.join(self.data_path, "services.csv")
+        if os.path.exists(services_path):
+            self._services_df = pd.read_csv(services_path)
+        else:
+            self._services_df = self._derive_services_from_edges(self._edges_df)
+
+        self._service_metrics_df = pd.read_csv(os.path.join(self.data_path, "service_metrics.csv"))
+        self._timetables_df = pd.read_csv(os.path.join(self.data_path, "timetables.csv"))
 
         print(f"✅ CSV Repository loaded from {self.data_path}")
 
@@ -79,11 +97,24 @@ class CSVRepository(DataRepository):
     def get_nodes(self) -> pd.DataFrame:
         return self._nodes_df.copy()
 
+    def get_edges(self) -> pd.DataFrame:
+        return self._edges_df.copy()
+
     def get_services(self) -> pd.DataFrame:
         return self._services_df.copy()
 
-    def get_edges(self) -> pd.DataFrame:
-        return self._edges_df.copy()
+    def _derive_services_from_edges(self, edges_df: pd.DataFrame) -> pd.DataFrame:
+        """Build a minimal services table when services.csv is absent."""
+        columns = {
+            "service_id": edges_df["service_id"],
+            "mode": edges_df.get("mode", pd.Series([None] * len(edges_df))),
+            "operator": edges_df.get("operator", pd.Series([None] * len(edges_df))),
+            "base_fare": edges_df.get("fare_lkr", pd.Series([None] * len(edges_df))),
+            "base_duration_min": edges_df.get("duration_min", pd.Series([None] * len(edges_df))),
+            "distance_km": edges_df.get("distance_km", pd.Series([None] * len(edges_df))),
+        }
+        derived = pd.DataFrame(columns)
+        return derived.drop_duplicates(subset=["service_id"]).reset_index(drop=True)
 
     def get_edges_between(self, origin_id: int, dest_id: int) -> pd.DataFrame:
         result = self._edges_df[
@@ -91,6 +122,12 @@ class CSVRepository(DataRepository):
             & (self._edges_df["destination_id"] == dest_id)
         ]
         return result.copy()
+
+    def get_service_metrics(self) -> pd.DataFrame:
+        return self._service_metrics_df.copy()
+
+    def get_timetables(self) -> pd.DataFrame:
+        return self._timetables_df.copy()
 
     def get_data_version(self) -> str:
         """Return CSV version (timestamp of files)."""
@@ -138,19 +175,27 @@ class MongoDBRepository(DataRepository):
     def _cache_data(self):
         """Load data into memory for fast access."""
         self._nodes_df = pd.DataFrame(list(self.db.nodes.find({}, {"_id": 0})))
-        self._services_df = pd.DataFrame(list(self.db.services.find({}, {"_id": 0})))
         self._edges_df = pd.DataFrame(list(self.db.edges.find({}, {"_id": 0})))
+        self._services_df = pd.DataFrame(list(self.db.services.find({}, {"_id": 0})))
+        self._service_metrics_df = pd.DataFrame(list(self.db.service_metrics.find({}, {"_id": 0})))
+        self._timetables_df = pd.DataFrame(list(self.db.timetables.find({}, {"_id": 0})))
 
-        if self._nodes_df.empty or self._services_df.empty or self._edges_df.empty:
+        if (
+            self._nodes_df.empty
+            or self._edges_df.empty
+            or self._services_df.empty
+            or self._service_metrics_df.empty
+            or self._timetables_df.empty
+        ):
             raise ValueError(
                 "MongoDB collections are empty. Run seed_mongo.py to populate data."
             )
 
-    def get_nodes(self) -> pd.DataFrame:
-        return self._nodes_df.copy()
-
     def get_services(self) -> pd.DataFrame:
         return self._services_df.copy()
+
+    def get_nodes(self) -> pd.DataFrame:
+        return self._nodes_df.copy()
 
     def get_edges(self) -> pd.DataFrame:
         return self._edges_df.copy()
@@ -161,6 +206,12 @@ class MongoDBRepository(DataRepository):
             & (self._edges_df["destination_id"] == dest_id)
         ]
         return result.copy()
+
+    def get_service_metrics(self) -> pd.DataFrame:
+        return self._service_metrics_df.copy()
+
+    def get_timetables(self) -> pd.DataFrame:
+        return self._timetables_df.copy()
 
     def get_data_version(self) -> str:
         """Get data version from metadata collection."""

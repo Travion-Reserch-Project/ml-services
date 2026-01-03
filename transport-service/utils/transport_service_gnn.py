@@ -156,11 +156,9 @@ class TransportServiceGNN:
                 raise RuntimeError("Data repository not initialized")
             
             self.nodes_df = self.repository.get_nodes()
-            self.services_df = self.repository.get_services()
             self.edges_df = self.repository.get_edges()
             
-            print(f"✅ Data loaded: {len(self.nodes_df)} nodes, "
-                  f"{len(self.services_df)} services, {len(self.edges_df)} edges")
+            print(f"✅ Data loaded: {len(self.nodes_df)} nodes, {len(self.edges_df)} edges")
             print(f"   Data version: {self.data_version}")
             
         except Exception as e:
@@ -168,7 +166,6 @@ class TransportServiceGNN:
             import traceback
             traceback.print_exc()
             self.nodes_df = None
-            self.services_df = None
             self.edges_df = None
     
     def predict_service_ratings(self, service_indices: List[int]) -> np.ndarray:
@@ -295,16 +292,14 @@ class TransportServiceGNN:
             for i, edge_idx in enumerate(edge_indices):
                 edge_row = available_edges.iloc[i]
                 service_id = edge_row['service_id']
-                # Get service details from CSV (operator, fare, etc.)
-                service = self.services_df[self.services_df['service_id'] == service_id].iloc[0]
                 
                 recommendations.append({
                     "service_id": service_id,
-                    "mode": service['mode'],
-                    "operator": service['operator'],
-                    "duration_min": int(service['base_duration_min']),
-                    "fare_lkr": float(service['base_fare']),
-                    "distance_km": float(service['distance_km']),
+                    "mode": edge_row['mode'],
+                    "operator": edge_row['operator'],
+                    "duration_min": int(edge_row['duration_min']),
+                    "fare_lkr": float(edge_row['fare_lkr']),
+                    "distance_km": float(edge_row['distance_km']),
                     "rating": float(ratings[i]),
                     "rating_stars": "⭐" * int(round(ratings[i])),
                     "temporal_context": temporal_context if temporal_context else None
@@ -386,7 +381,6 @@ class TransportServiceGNN:
             services = []
             for i, (idx, edge_row) in enumerate(self.edges_df.iterrows()):
                 service_id = edge_row['service_id']
-                service = self.services_df[self.services_df['service_id'] == service_id].iloc[0]
                 origin = self.nodes_df[self.nodes_df['location_id'] == edge_row['origin_id']].iloc[0]
                 dest = self.nodes_df[self.nodes_df['location_id'] == edge_row['destination_id']].iloc[0]
                 
@@ -394,10 +388,10 @@ class TransportServiceGNN:
                     "service_id": service_id,
                     "origin": origin['name'],
                     "destination": dest['name'],
-                    "mode": service['mode'],
-                    "operator": service['operator'],
-                    "duration_min": int(service['base_duration_min']),
-                    "fare_lkr": float(service['base_fare']),
+                    "mode": edge_row['mode'],
+                    "operator": edge_row['operator'],
+                    "duration_min": int(edge_row['duration_min']),
+                    "fare_lkr": float(edge_row['fare_lkr']),
                     "rating": float(ratings[i])
                 })
             

@@ -1,8 +1,43 @@
-location_id,name,type,latitude,longitude,region
-1,Colombo Fort Station,train_station,6.9271,79.8423,Western
-2,Colombo Central Station,train_station,6.9432,79.8553,Western
-3,Kandy Bus Stand,bus_stand,7.2906,80.6337,Central
-4,Anuradhapura Bus Stand,bus_stand,8.3365,80.4037,North-Central
-5,Anuradhapura Railway Station,train_station,8.3375,80.405,North-Central
-6,Anuradhapura Town Center,hub,8.334,80.4025,North-Central
-7,Dambulla Junction,hub,7.8731,80.6514,North-Central
+location_id,name,type,latitude,longitude,region,radius_km
+1,Colombo,city,6.9271,79.8612,Western,10
+2,Dehiwala,city,6.8516,79.8653,Western,8
+3,Moratuwa,city,6.773,79.8816,Western,8
+4,Gampaha,city,7.0917,79.9997,Western,8
+5,Negombo,city,7.2083,79.8358,Western,8
+6,Kalutara,city,6.5854,79.9607,Western,8
+7,Kandy,city,7.2906,80.6337,Central,10
+8,Matale,city,7.4675,80.6234,Central,8
+9,Nuwara Eliya,city,6.9497,80.7891,Central,8
+10,Gampola,city,7.1646,80.569,Central,7
+11,Hatton,city,6.8916,80.595,Central,7
+12,Galle,city,6.0535,80.221,Southern,10
+13,Matara,city,5.9485,80.5353,Southern,8
+14,Hambantota,city,6.1241,81.1185,Southern,8
+15,Tangalle,city,6.024,80.7929,Southern,7
+16,Jaffna,city,9.6615,80.0255,Northern,10
+17,Point Pedro,city,9.8167,80.2333,Northern,7
+18,Chavakachcheri,city,9.661,80.165,Northern,7
+19,Kilinochchi,city,9.3961,80.3982,Northern,8
+20,Trincomalee,city,8.5874,81.2152,Eastern,10
+21,Batticaloa,city,7.7102,81.6924,Eastern,8
+22,Kalmunai,city,7.4167,81.8167,Eastern,7
+23,Ampara,city,7.2975,81.682,Eastern,7
+24,Kurunegala,city,7.4863,80.3647,North Western,10
+25,Puttalam,city,8.0362,79.8283,North Western,8
+26,Chilaw,city,7.5758,79.7953,North Western,7
+27,Anuradhapura,city,8.3114,80.4037,North Central,10
+28,Polonnaruwa,city,7.9403,81.0188,North Central,8
+29,Badulla,city,6.9934,81.055,Uva,8
+30,Bandarawela,city,6.8259,80.9982,Uva,7
+31,Ella,city,6.8667,81.0466,Uva,7
+32,Ratnapura,city,6.6828,80.399,Sabaragamuwa,8
+33,Kegalle,city,7.2513,80.3464,Sabaragamuwa,7
+34,Bandaranaike International Airport,airport,7.1808,79.8841,Western,12
+35,Mattala Rajapaksa International Airport,airport,6.2845,81.1241,Southern,12
+36,Colombo Fort,city,6.9344,79.8428,Western,5
+37,Aluthgama,city,6.4331,79.9989,Western,5
+38,Maradana,city,6.9286,79.8661,Western,5
+39,Meerigama,city,7.2476,80.1303,Western,5
+40,Panadura,city,6.7132,79.9026,Western,5
+41,Ragama,city,7.03,79.919,Western,5
+42,Wattala,city,6.9892,79.8917,Western,5
