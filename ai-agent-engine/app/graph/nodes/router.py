@@ -237,11 +237,20 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
 
     logger.info(f"Classified intent: {intent.value} (heuristic)")
 
+    # IMPORTANT: Preserve existing target_location if it was already set (e.g., from location-specific chat)
+    existing_target_location = state.get("target_location")
+    new_target_location = existing_target_location or (entities["locations"][0] if entities["locations"] else None)
+    
+    if existing_target_location:
+        logger.info(f"Preserving existing target_location: {existing_target_location}")
+    elif new_target_location:
+        logger.info(f"Extracted target_location from query: {new_target_location}")
+
     # Update state
     return {
         **state,
         "intent": intent,
-        "target_location": entities["locations"][0] if entities["locations"] else None,
+        "target_location": new_target_location,
         "target_date": entities["date_reference"],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),

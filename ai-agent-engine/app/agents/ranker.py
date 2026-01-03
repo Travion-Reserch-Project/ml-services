@@ -59,7 +59,15 @@ except ImportError:
     StateGraph = None
     END = None
 
-# LangChain imports
+# Gemini LLM (Primary - Free tier available)
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    ChatGoogleGenerativeAI = None
+
+# OpenAI LLM (Fallback)
 try:
     from langchain_openai import ChatOpenAI
     OPENAI_AVAILABLE = True
@@ -157,7 +165,24 @@ class RerankerAgent:
         logger.info("RerankerAgent initialized")
 
     def _init_llm(self):
-        """Initialize the LLM for reasoning."""
+        """Initialize the LLM for reasoning (Gemini primary, OpenAI fallback)."""
+        provider = settings.LLM_PROVIDER
+
+        # Try Gemini first (if configured as primary or if available)
+        if provider == "gemini" and GEMINI_AVAILABLE and settings.GOOGLE_API_KEY:
+            try:
+                self.llm = ChatGoogleGenerativeAI(
+                    model=settings.GEMINI_MODEL,
+                    temperature=0.7,
+                    google_api_key=settings.GOOGLE_API_KEY,
+                    convert_system_message_to_human=True
+                )
+                logger.info(f"Ranker LLM initialized with Gemini: {settings.GEMINI_MODEL}")
+                return
+            except Exception as e:
+                logger.warning(f"Could not initialize Gemini: {e}")
+
+        # Fallback to OpenAI
         if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
             try:
                 self.llm = ChatOpenAI(
@@ -165,9 +190,9 @@ class RerankerAgent:
                     temperature=0.7,
                     api_key=settings.OPENAI_API_KEY
                 )
-                logger.info(f"Ranker LLM initialized: {settings.OPENAI_MODEL}")
+                logger.info(f"Ranker LLM initialized with OpenAI: {settings.OPENAI_MODEL}")
             except Exception as e:
-                logger.warning(f"Could not initialize LLM: {e}")
+                logger.warning(f"Could not initialize OpenAI LLM: {e}")
 
     def _init_tools(self):
         """Initialize constraint-checking tools."""
@@ -282,6 +307,7 @@ class RerankerAgent:
             location_type = self._infer_location_type(pref_scores)
 
             # Check crowd levels using CrowdCast
+            # IMPROVED: Use soft penalty instead of hard blocking
             if self.crowdcast:
                 try:
                     crowd_result = self.crowdcast.predict(
@@ -291,13 +317,37 @@ class RerankerAgent:
                         is_school_holiday=is_school_holiday
                     )
                     crowd_level = crowd_result.get("crowd_percentage", 50)
-                    location_constraints["crowd"] = {
-                        "status": "blocked" if crowd_level > 90 else ("warning" if crowd_level > 70 else "ok"),
-                        "value": crowd_level,
-                        "message": f"Expected crowd: {crowd_level}%"
-                    }
+
+                    # Soft penalty system instead of hard blocking
+                    # - >90%: severe warning (heavy penalty) but NOT blocked
+                    # - >80%: high warning
+                    # - >70%: moderate warning
+                    # - >50%: light warning
+                    # - <=50%: ok
                     if crowd_level > 90:
-                        blocked_locations.append(name)
+                        status = "severe_warning"
+                        message = f"Very crowded ({crowd_level}%) - consider early morning visit"
+                    elif crowd_level > 80:
+                        status = "high_warning"
+                        message = f"High crowds ({crowd_level}%) - best to visit early"
+                    elif crowd_level > 70:
+                        status = "warning"
+                        message = f"Moderate crowds ({crowd_level}%)"
+                    elif crowd_level > 50:
+                        status = "light_warning"
+                        message = f"Some crowds expected ({crowd_level}%)"
+                    else:
+                        status = "ok"
+                        message = f"Low crowds expected ({crowd_level}%)"
+
+                    location_constraints["crowd"] = {
+                        "status": status,
+                        "value": crowd_level,
+                        "message": message,
+                        "optimal_time": crowd_result.get("optimal_time", "07:00-09:00")
+                    }
+
+                    # Note: We no longer block locations, just apply penalties in evaluate
                 except Exception as e:
                     logger.warning(f"Crowd check failed for {name}: {e}")
 
@@ -347,32 +397,67 @@ class RerankerAgent:
         }
 
     def _infer_location_type(self, pref_scores: Dict[str, float]) -> str:
-        """Infer location type from preference scores for CrowdCast."""
+        """
+        Infer location type from preference scores for CrowdCast.
+
+        IMPROVED: Uses multi-label classification instead of single max score.
+        Considers combinations of scores for more accurate type inference.
+        """
         if not pref_scores:
             return "Heritage"
 
-        # Find highest scoring category
-        max_score = 0
-        max_cat = "history"
-        for cat, score in pref_scores.items():
-            if score > max_score:
-                max_score = score
-                max_cat = cat
+        history = pref_scores.get("history", 0)
+        adventure = pref_scores.get("adventure", 0)
+        nature = pref_scores.get("nature", 0)
+        relaxation = pref_scores.get("relaxation", 0)
 
-        # Map to CrowdCast location types
-        type_mapping = {
-            "history": "Heritage",
-            "adventure": "Nature",
-            "nature": "Nature",
-            "relaxation": "Beach"
-        }
-        return type_mapping.get(max_cat, "Heritage")
+        # Multi-label classification with thresholds
+        # Priority order matters for combined types
+
+        # Religious/Heritage site (high history + moderate/high relaxation)
+        if history >= 0.7 and relaxation >= 0.4:
+            return "Religious"
+
+        # Pure Heritage site (high history, low nature)
+        if history >= 0.7:
+            return "Heritage"
+
+        # Beach/Coastal (high relaxation + low-moderate nature)
+        if relaxation >= 0.7 and nature <= 0.6:
+            return "Beach"
+
+        # Nature Reserve (high nature + moderate-high adventure)
+        if nature >= 0.8 and adventure >= 0.5:
+            return "Nature Reserve"
+
+        # Adventure/Outdoor (high adventure)
+        if adventure >= 0.7:
+            return "Adventure"
+
+        # Nature (high nature)
+        if nature >= 0.7:
+            return "Nature"
+
+        # Scenic Viewpoint (moderate nature + moderate history)
+        if nature >= 0.5 and history >= 0.3:
+            return "Scenic"
+
+        # Default based on highest score
+        scores = [
+            (history, "Heritage"),
+            (adventure, "Adventure"),
+            (nature, "Nature"),
+            (relaxation, "Beach")
+        ]
+        max_score, max_type = max(scores, key=lambda x: x[0])
+        return max_type
 
     async def _evaluate_candidates_node(self, state: RankerState) -> RankerState:
         """
         Evaluate and rank candidates based on constraints.
 
-        Applies penalty scores for warnings and removes blocked locations.
+        IMPROVED: Uses graduated penalty system instead of blocking.
+        Provides better recommendations by keeping all options available.
         """
         candidates = state.get("candidates", [])
         constraint_results = state.get("constraint_results", {})
@@ -391,31 +476,53 @@ class RerankerAgent:
 
             penalty = 0.0
             warnings = []
+            tips = []
 
-            # Apply crowd penalty
+            # ==================== IMPROVED CROWD PENALTY SYSTEM ====================
             crowd = constraints.get("crowd", {})
-            if crowd.get("status") == "warning":
-                penalty += 0.1
-                warnings.append(crowd.get("message", "Moderate crowds"))
+            crowd_status = crowd.get("status", "ok")
+            crowd_value = crowd.get("value", 50)
 
-            # Apply lighting penalty
+            if crowd_status == "severe_warning":
+                penalty += 0.20  # Heavy but not blocking
+                warnings.append(crowd.get("message", "Very crowded"))
+                tips.append(f"Optimal time: {crowd.get('optimal_time', '07:00-09:00')}")
+            elif crowd_status == "high_warning":
+                penalty += 0.15
+                warnings.append(crowd.get("message", "High crowds expected"))
+                tips.append(f"Consider visiting: {crowd.get('optimal_time', '07:00-09:00')}")
+            elif crowd_status == "warning":
+                penalty += 0.10
+                warnings.append(crowd.get("message", "Moderate crowds"))
+            elif crowd_status == "light_warning":
+                penalty += 0.05
+                # Don't add warning for light crowds
+
+            # ==================== LIGHTING PENALTY ====================
             lighting = constraints.get("lighting", {})
             if lighting.get("status") == "warning":
                 penalty += 0.05
                 warnings.append(lighting.get("message", "Suboptimal lighting"))
 
-            # Apply holiday boost (temples may be busier but more atmospheric)
+            # ==================== HOLIDAY/POYA HANDLING ====================
             holiday = constraints.get("holiday", {})
             if holiday.get("status") == "warning":
+                # Poya days: busier but can be more atmospheric
                 warnings.append(holiday.get("message", "Holiday period"))
+                # Slight penalty for crowds but note the cultural experience
+                penalty += 0.03
+                tips.append("Poya day: temples may be busier but offer authentic cultural experience")
 
-            adjusted_score = max(0, base_score - penalty)
+            # Calculate adjusted score (min 0.1 to keep all candidates viable)
+            adjusted_score = max(0.1, base_score - penalty)
 
             ranked.append({
                 **candidate,
                 "adjusted_score": adjusted_score,
                 "constraint_checks": constraints,
-                "warnings": warnings
+                "warnings": warnings,
+                "visit_tips": tips,
+                "crowd_penalty_applied": penalty
             })
 
         # Sort by adjusted score
@@ -425,7 +532,8 @@ class RerankerAgent:
             "timestamp": datetime.now().isoformat(),
             "node": "evaluate_candidates",
             "ranked_count": len(ranked),
-            "top_score": ranked[0].get("adjusted_score", 0) if ranked else 0
+            "top_score": ranked[0].get("adjusted_score", 0) if ranked else 0,
+            "max_penalty_applied": max((r.get("crowd_penalty_applied", 0) for r in ranked), default=0)
         })
 
         return {
@@ -435,7 +543,11 @@ class RerankerAgent:
         }
 
     def _should_self_correct(self, state: RankerState) -> str:
-        """Determine if self-correction is needed."""
+        """
+        Determine if self-correction is needed.
+
+        IMPROVED: More nuanced decision making based on candidate quality.
+        """
         ranked = state.get("ranked_candidates", [])
         corrections = state.get("self_correction_count", 0)
 
@@ -443,19 +555,34 @@ class RerankerAgent:
         if len(ranked) < 1 and corrections < MAX_SELF_CORRECTIONS:
             return "self_correct"
 
-        # Top candidate has too many warnings
+        # Check top candidates quality
         if ranked:
             top = ranked[0]
-            if len(top.get("warnings", [])) > 2 and corrections < MAX_SELF_CORRECTIONS:
+            top_score = top.get("adjusted_score", 0)
+
+            # If top score is too low (below 0.3), try to find better
+            if top_score < 0.3 and corrections < MAX_SELF_CORRECTIONS:
+                return "self_correct"
+
+            # If too many severe warnings in top 3
+            severe_warning_count = sum(
+                1 for r in ranked[:3]
+                if "severe_warning" in str(r.get("constraint_checks", {}).get("crowd", {}).get("status", ""))
+            )
+            if severe_warning_count >= 2 and corrections < MAX_SELF_CORRECTIONS:
                 return "self_correct"
 
         return "generate"
 
     async def _self_correct_node(self, state: RankerState) -> RankerState:
         """
-        Self-correction: request more candidates or modify constraints.
+        Self-correction: adaptive re-ranking with intelligent candidate selection.
 
-        Implements the research-grade self-correction loop.
+        IMPROVED:
+        1. Expands search radius if candidates have low scores
+        2. Adjusts preference weights if results are suboptimal
+        3. Suggests alternative times for crowded locations
+        4. Provides clear feedback on why correction was needed
         """
         corrections = state.get("self_correction_count", 0) + 1
         logs = state.get("reasoning_logs", [])
@@ -466,23 +593,68 @@ class RerankerAgent:
         user_lng = state.get("user_lng", 80.0)
         user_prefs = state.get("user_preferences", [0.5, 0.5, 0.5, 0.5])
         blocked = state.get("blocked_locations", [])
+        ranked = state.get("ranked_candidates", [])
+
+        # Analyze why we need correction
+        correction_reason = "insufficient_candidates"
+        expanded_search = False
+        relaxed_preferences = False
+
+        if ranked:
+            top_score = ranked[0].get("adjusted_score", 0) if ranked else 0
+            if top_score < 0.3:
+                correction_reason = "low_quality_matches"
+
+            # Check for crowd issues
+            crowd_issues = [r for r in ranked[:3] if r.get("crowd_penalty_applied", 0) > 0.1]
+            if len(crowd_issues) >= 2:
+                correction_reason = "crowd_constraints"
 
         try:
+            # Adaptive search parameters based on correction reason
+            max_distance = 200.0  # Default
+
+            if correction_reason == "low_quality_matches":
+                # Expand search radius progressively
+                max_distance = 200.0 + (corrections * 50)  # 250km, 300km, 350km...
+                expanded_search = True
+
+            if correction_reason == "insufficient_candidates":
+                max_distance = 250.0
+                expanded_search = True
+
+            # Get excluded locations (previous candidates + blocked)
+            previous_names = [c.get("name") for c in ranked[:5]] if ranked else []
+            all_excluded = list(set(blocked + previous_names))
+
             new_candidates = recommender.get_candidates(
                 user_preferences=user_prefs,
                 user_lat=user_lat,
                 user_lng=user_lng,
-                top_k=5,
-                exclude_locations=blocked
+                top_k=8,  # Get more candidates for better selection
+                max_distance_km=max_distance,
+                exclude_locations=all_excluded
             )
 
             new_candidate_dicts = [c.to_dict() for c in new_candidates]
+
+            # Generate adaptive suggestions based on correction
+            suggestions = []
+            if correction_reason == "crowd_constraints":
+                suggestions.append("Consider visiting early morning (07:00-09:00) to avoid crowds")
+                suggestions.append("Weekdays typically have fewer visitors than weekends")
+            if expanded_search:
+                suggestions.append(f"Expanded search to {max_distance:.0f}km radius for more options")
 
             logs.append({
                 "timestamp": datetime.now().isoformat(),
                 "node": "self_correct",
                 "correction_number": corrections,
-                "new_candidates": len(new_candidate_dicts)
+                "reason": correction_reason,
+                "new_candidates": len(new_candidate_dicts),
+                "search_radius_km": max_distance,
+                "expanded_search": expanded_search,
+                "suggestions": suggestions
             })
 
             return {
@@ -490,6 +662,7 @@ class RerankerAgent:
                 "candidates": new_candidate_dicts,
                 "self_correction_count": corrections,
                 "needs_more_candidates": False,
+                "correction_suggestions": suggestions,
                 "reasoning_logs": logs
             }
 
@@ -618,36 +791,115 @@ Write 1-2 sentences about why these locations complement each other."""
         }
 
     def _suggest_optimal_time(self, candidate: Dict) -> str:
-        """Suggest optimal visit time based on constraints."""
+        """Suggest optimal visit time based on constraints and location type."""
         constraints = candidate.get("constraint_checks", {})
         is_outdoor = candidate.get("is_outdoor", True)
+        prefs = candidate.get("preference_scores", {})
 
         # Check crowd patterns
         crowd = constraints.get("crowd", {})
         crowd_level = crowd.get("value", 50)
+        optimal_from_crowd = crowd.get("optimal_time", None)
 
-        if crowd_level > 70:
-            return "Early morning (07:00-09:00) to avoid crowds"
+        # Location type specific suggestions
+        history = prefs.get("history", 0)
+        nature = prefs.get("nature", 0)
+        relaxation = prefs.get("relaxation", 0)
+
+        if crowd_level > 80:
+            return optimal_from_crowd or "Early morning (06:00-08:00) to avoid peak crowds"
+        elif crowd_level > 70:
+            return optimal_from_crowd or "Early morning (07:00-09:00) to avoid crowds"
+        elif history >= 0.7:
+            # Heritage sites: cooler morning hours
+            return "Morning (08:00-11:00) for comfortable temple/monument exploration"
+        elif nature >= 0.8:
+            # Wildlife: early morning or late afternoon
+            return "Early morning (06:00-08:00) or late afternoon (16:00-18:00) for wildlife sightings"
+        elif relaxation >= 0.7 and is_outdoor:
+            # Beaches: avoid midday sun
+            return "Morning (08:00-10:00) or late afternoon (16:00-18:00) to avoid harsh sun"
         elif is_outdoor:
-            return "Morning (09:00-11:00) or late afternoon (15:00-17:00)"
+            return "Morning (09:00-11:00) or late afternoon (15:00-17:00) for best lighting"
         else:
-            return "Any time during opening hours"
+            return "Any time during opening hours (typically 09:00-17:00)"
 
     def _generate_fallback_reasoning(self, candidate: Dict) -> str:
-        """Generate template-based reasoning when LLM unavailable."""
+        """
+        Generate rich template-based reasoning when LLM unavailable.
+
+        IMPROVED: Location-specific templates with contextual information.
+        """
         name = candidate.get("name", "This location")
         score = candidate.get("similarity_score", 0.5)
         distance = candidate.get("distance_km", 0)
         prefs = candidate.get("preference_scores", {})
+        warnings = candidate.get("warnings", [])
+        visit_tips = candidate.get("visit_tips", [])
 
-        # Find best matching category
-        best_cat = max(prefs.items(), key=lambda x: x[1])[0] if prefs else "tourism"
+        # Find top 2 matching categories
+        sorted_prefs = sorted(prefs.items(), key=lambda x: x[1], reverse=True) if prefs else []
+        best_cat = sorted_prefs[0][0] if sorted_prefs else "tourism"
+        second_cat = sorted_prefs[1][0] if len(sorted_prefs) > 1 else None
 
-        return (
-            f"{name} is a {score:.0%} match for your preferences, "
-            f"particularly for {best_cat}. Located {distance:.1f} km away, "
-            f"it offers an excellent experience for visitors."
-        )
+        # Category descriptions
+        category_descriptions = {
+            "history": "historical and cultural significance",
+            "adventure": "adventure activities and outdoor experiences",
+            "nature": "natural beauty and wildlife",
+            "relaxation": "peaceful and relaxing atmosphere"
+        }
+
+        # Category-specific location insights
+        location_insights = {
+            "history": "rich cultural heritage and ancient architecture",
+            "adventure": "thrilling outdoor activities and scenic trails",
+            "nature": "diverse flora and fauna in pristine surroundings",
+            "relaxation": "serene environment perfect for unwinding"
+        }
+
+        # Build reasoning
+        primary_desc = category_descriptions.get(best_cat, "unique attractions")
+        insight = location_insights.get(best_cat, "memorable experiences")
+
+        # Determine match quality
+        if score >= 0.8:
+            match_quality = "excellent"
+        elif score >= 0.6:
+            match_quality = "great"
+        elif score >= 0.4:
+            match_quality = "good"
+        else:
+            match_quality = "suitable"
+
+        # Build base reasoning
+        reasoning = f"{name} is an {match_quality} match ({score:.0%}) for your preferences"
+
+        # Add category details
+        if second_cat and sorted_prefs[1][1] >= 0.5:
+            second_desc = category_descriptions.get(second_cat, "various activities")
+            reasoning += f", offering {primary_desc} combined with {second_desc}"
+        else:
+            reasoning += f", known for its {insight}"
+
+        # Add distance context
+        if distance < 10:
+            reasoning += f". Conveniently located just {distance:.1f} km away"
+        elif distance < 30:
+            reasoning += f". A short {distance:.1f} km drive from your location"
+        else:
+            reasoning += f". Located {distance:.1f} km away, worth the journey"
+
+        # Add tips if available
+        if visit_tips:
+            reasoning += f". Tip: {visit_tips[0]}"
+        elif warnings:
+            # Convert warning to actionable tip
+            if "crowd" in warnings[0].lower():
+                reasoning += ". Best visited early morning to avoid crowds"
+
+        reasoning += "."
+        return reasoning
 
     async def rerank(
         self,

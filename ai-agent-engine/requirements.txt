@@ -12,8 +12,9 @@ langchain-community>=0.0.10
 langchain-core>=0.1.0
 
 # LLM Integration
-langchain-ollama>=0.0.1
-langchain-openai>=0.0.5
+langchain-google-genai>=1.0.0  # Gemini (Primary - Free tier)
+langchain-openai>=0.0.5        # OpenAI (Fallback)
+langchain-ollama>=0.0.1        # Ollama (Local fallback)
 
 # Vector Database
 chromadb>=0.4.0

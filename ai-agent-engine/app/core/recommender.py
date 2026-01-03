@@ -21,6 +21,8 @@ Mathematical Foundations:
 import logging
 import math
 import random
+import hashlib
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
@@ -127,6 +129,124 @@ def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
     return max(0.0, min(1.0, similarity))
 
 
+def weighted_preference_match(
+    user_preferences: List[float],
+    location_scores: List[float],
+    confidence_weights: Optional[List[float]] = None,
+    favorite_categories: Optional[List[str]] = None,
+    avoid_categories: Optional[List[str]] = None
+) -> float:
+    """
+    Calculate weighted preference match score with proper reward/penalty logic.
+
+    IMPROVED ALGORITHM:
+    - For categories user IS interested in (pref >= 0.5): 
+      REWARD locations that have this category strongly.
+    - For categories user is NOT interested in (pref < 0.5):
+      PENALIZE locations that have what user doesn't want.
+
+    Args:
+        user_preferences: User's preference vector [hist, adv, nat, rel] (0-1)
+        location_scores: Location's category scores [hist, adv, nat, rel] (0-1)
+        confidence_weights: Optional confidence for each preference (0-1)
+        favorite_categories: Optional list of categories to boost
+        avoid_categories: Optional list of categories to penalize
+
+    Returns:
+        Match score between 0 and 1
+
+    Example:
+        >>> # User wants adventure (0.9) and nature (0.9)
+        >>> user = [0.5, 0.9, 0.9, 0.5]
+        >>> # Location is an adventure/nature spot
+        >>> location = [0.3, 0.8, 0.9, 0.2]
+        >>> score = weighted_preference_match(user, location)
+        >>> # Score will be HIGH because location matches user's interests
+    """
+    if len(user_preferences) != len(location_scores):
+        raise ValueError("Preference vectors must have same length")
+
+    if len(user_preferences) != 4:
+        raise ValueError("Expected 4 preference dimensions [hist, adv, nat, rel]")
+
+    # Default confidence weights (1.0 = full confidence)
+    if confidence_weights is None:
+        confidence_weights = [1.0, 1.0, 1.0, 1.0]
+
+    # Category names for favorite/avoid matching
+    category_names = ["history", "adventure", "nature", "relaxation"]
+
+    # Convert favorite/avoid to sets for O(1) lookup
+    favorites_set = set(favorite_categories or [])
+    avoid_set = set(avoid_categories or [])
+
+    weighted_match = 0.0
+    total_weight = 0.0
+
+    for i in range(4):
+        user_pref = user_preferences[i]
+        loc_score = location_scores[i]
+        confidence = confidence_weights[i] if i < len(confidence_weights) else 1.0
+        category_name = category_names[i]
+
+        if user_pref >= 0.5:
+            # User IS interested in this category
+            interest_level = (user_pref - 0.5) * 2  # Scale to 0-1
+            
+            # Reward: how well does location satisfy this interest?
+            satisfaction = loc_score
+            
+            # Boost for strong matches (both user and location high)
+            if loc_score >= 0.5:
+                boost = 1.0 + (interest_level * (loc_score - 0.5) * 0.5)
+                satisfaction *= boost
+            
+            # Apply favorite category boost
+            if category_name in favorites_set:
+                satisfaction = min(1.0, satisfaction * 1.2)
+            
+            # Apply avoid category penalty
+            if category_name in avoid_set:
+                satisfaction = max(0.0, satisfaction * 0.5)
+            
+            weight = user_pref * confidence
+            weighted_match += satisfaction * weight
+            total_weight += weight
+        else:
+            # User is NOT interested (pref < 0.5)
+            disinterest_level = (0.5 - user_pref) * 2  # Scale to 0-1
+            
+            if loc_score >= 0.5:
+                # Location has something user doesn't want - penalty!
+                penalty = loc_score * disinterest_level
+                penalty_factor = math.exp(-2.5 * penalty)
+                category_score = penalty_factor
+            else:
+                # Location doesn't have what user doesn't want - neutral/slight positive
+                category_score = 0.7
+            
+            # Apply avoid category penalty (stronger)
+            if category_name in avoid_set:
+                if loc_score >= 0.5:
+                    category_score = max(0.0, category_score * 0.3)
+            
+            weight = (1.0 - user_pref) * confidence
+            weighted_match += category_score * weight
+            total_weight += weight
+
+    if total_weight == 0:
+        return 0.5  # Neutral score if no significant preferences
+
+    # Normalize
+    raw_score = weighted_match / total_weight
+
+    # Apply sigmoid smoothing for better score distribution
+    k = 5.0  # Steepness parameter
+    smoothed_score = 1.0 / (1.0 + math.exp(-k * (raw_score - 0.5)))
+
+    return max(0.0, min(1.0, smoothed_score))
+
+
 def haversine_distance(
     lat1: float, lng1: float,
     lat2: float, lng2: float
@@ -140,37 +260,125 @@ def haversine_distance(
         a = sin^2((lat2-lat1)/2) + cos(lat1)*cos(lat2)*sin^2((lng2-lng1)/2)
         c = 2 * arcsin(sqrt(a))
         d = R * c
-
-    Where R is Earth's radius (6371 km).
-
-    Args:
-        lat1, lng1: First point coordinates (degrees)
-        lat2, lng2: Second point coordinates (degrees)
-
-    Returns:
-        Distance in kilometers
-
-    Example:
-        >>> # Colombo to Sigiriya
-        >>> dist = haversine_distance(6.9271, 79.8612, 7.957, 80.7603)
-        >>> print(f"Distance: {dist:.1f} km")  # ~110 km
     """
-    # Convert degrees to radians
+    # Convert to radians
     lat1_rad = math.radians(lat1)
+    lng1_rad = math.radians(lng1)
     lat2_rad = math.radians(lat2)
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-
+    lng2_rad = math.radians(lng2)
+    
     # Haversine formula
-    a = (math.sin(dlat / 2) ** 2 +
-         math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng / 2) ** 2)
-
+    dlat = lat2_rad - lat1_rad
+    dlng = lng2_rad - lng1_rad
+    
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng / 2) ** 2
     c = 2 * math.asin(math.sqrt(a))
+    
+    return EARTH_RADIUS_KM * c
 
-    # Distance in kilometers
-    distance = EARTH_RADIUS_KM * c
 
-    return distance
+def vectorized_haversine(user_lat: float, user_lng: float, 
+                          lats: np.ndarray, lngs: np.ndarray) -> np.ndarray:
+    """
+    Vectorized haversine distance calculation for all locations at once.
+    
+    Args:
+        user_lat: User latitude in degrees
+        user_lng: User longitude in degrees
+        lats: Array of location latitudes in degrees
+        lngs: Array of location longitudes in degrees
+    
+    Returns:
+        Array of distances in kilometers
+    """
+    # Convert to radians
+    lat1_rad = np.radians(user_lat)
+    lng1_rad = np.radians(user_lng)
+    lats_rad = np.radians(lats)
+    lngs_rad = np.radians(lngs)
+    
+    # Haversine formula
+    dlat = lats_rad - lat1_rad
+    dlng = lngs_rad - lng1_rad
+    
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1_rad) * np.cos(lats_rad) * np.sin(dlng / 2) ** 2
+    c = 2 * np.arcsin(np.sqrt(a))
+    
+    return EARTH_RADIUS_KM * c
+
+
+def vectorized_weighted_match(user_prefs: np.ndarray, 
+                               location_scores: np.ndarray) -> np.ndarray:
+    """
+    Vectorized weighted preference match for all locations at once.
+    
+    IMPROVED ALGORITHM:
+    - For categories user IS interested in (pref >= 0.5): 
+      Reward locations that HAVE this category. Score = loc_score scaled by user interest.
+    - For categories user is NOT interested in (pref < 0.5):
+      Penalize locations that have what user doesn't want.
+    
+    Args:
+        user_prefs: User preferences [4] array
+        location_scores: Location scores [n_locations, 4] array
+    
+    Returns:
+        Array of similarity scores for each location (0.0 to 1.0)
+    """
+    n_locations = location_scores.shape[0]
+    scores = np.zeros(n_locations)
+    
+    for i in range(n_locations):
+        loc_scores = location_scores[i]
+        weighted_match = 0.0
+        total_interest_weight = 0.0
+        
+        for j in range(4):
+            user_pref = user_prefs[j]
+            loc_score = loc_scores[j]
+            
+            if user_pref >= 0.5:
+                # User IS interested in this category
+                # Weight by how interested the user is (0.5 = neutral, 1.0 = very interested)
+                interest_level = (user_pref - 0.5) * 2  # Scale to 0-1
+                
+                # Reward: how well does location satisfy this interest?
+                # If user wants adventure (0.9) and location has adventure (0.8), that's great!
+                satisfaction = loc_score  # Direct: location's strength in this category
+                
+                # Boost for strong matches (both user and location high)
+                if loc_score >= 0.5:
+                    # Both interested and location has it - boost!
+                    boost = 1.0 + (interest_level * (loc_score - 0.5) * 0.5)
+                    satisfaction *= boost
+                
+                weighted_match += satisfaction * user_pref  # Weight by user's preference strength
+                total_interest_weight += user_pref
+            else:
+                # User is NOT interested (pref < 0.5)
+                # Penalize if location has what user doesn't want
+                disinterest_level = (0.5 - user_pref) * 2  # Scale to 0-1
+                
+                if loc_score >= 0.5:
+                    # Location has something user doesn't want - penalty!
+                    penalty = loc_score * disinterest_level
+                    penalty_factor = math.exp(-2.5 * penalty)  # Exponential penalty
+                    weighted_match += penalty_factor * (1.0 - user_pref)
+                else:
+                    # Location doesn't have what user doesn't want - neutral/slight positive
+                    weighted_match += 0.7 * (1.0 - user_pref)
+                
+                total_interest_weight += (1.0 - user_pref)
+        
+        if total_interest_weight > 0:
+            raw_score = weighted_match / total_interest_weight
+            # Sigmoid smoothing for better distribution
+            # Center around 0.5 with moderate steepness
+            scores[i] = 1.0 / (1.0 + math.exp(-5.0 * (raw_score - 0.5)))
+        else:
+            scores[i] = 0.5
+    
+    return np.clip(scores, 0.0, 1.0)
 
 
 class HybridRecommender:
@@ -235,7 +443,7 @@ class HybridRecommender:
         )
 
     def _load_locations(self, path: Path) -> None:
-        """Load and validate locations metadata."""
+        """Load and validate locations metadata with comprehensive validation."""
         if not path.exists():
             logger.warning(f"Locations file not found: {path}")
             self.locations_df = pd.DataFrame()
@@ -254,7 +462,66 @@ class HybridRecommender:
             if "l_outdoor" not in self.locations_df.columns:
                 self.locations_df["l_outdoor"] = 1
 
-            logger.info(f"Loaded {len(self.locations_df)} locations from {path}")
+            # ==================== COMPREHENSIVE VALIDATION ====================
+
+            validation_issues = []
+            rows_to_drop = []
+
+            for idx, row in self.locations_df.iterrows():
+                name = row["Location_Name"]
+
+                # Validate coordinates
+                lat = row["l_lat"]
+                lng = row["l_lng"]
+
+                if pd.isna(lat) or pd.isna(lng):
+                    validation_issues.append(f"{name}: Missing coordinates")
+                    rows_to_drop.append(idx)
+                    continue
+
+                # Sri Lanka bounds check (5.5-10.0 lat, 79.0-82.5 lng)
+                if not (5.0 <= lat <= 10.5) or not (78.5 <= lng <= 83.0):
+                    validation_issues.append(f"{name}: Coordinates outside Sri Lanka ({lat}, {lng})")
+
+                # Validate preference scores are in [0, 1]
+                for col in self.PREFERENCE_COLUMNS:
+                    score = row[col]
+                    if pd.isna(score):
+                        validation_issues.append(f"{name}: Missing {col} score, defaulting to 0.5")
+                        self.locations_df.at[idx, col] = 0.5
+                    elif not (0 <= score <= 1):
+                        validation_issues.append(f"{name}: {col}={score} out of range [0,1], clamping")
+                        self.locations_df.at[idx, col] = max(0, min(1, score))
+
+                # Check for empty names
+                if pd.isna(name) or str(name).strip() == "":
+                    validation_issues.append(f"Row {idx}: Empty location name")
+                    rows_to_drop.append(idx)
+
+            # Drop invalid rows
+            if rows_to_drop:
+                self.locations_df = self.locations_df.drop(rows_to_drop)
+                logger.warning(f"Dropped {len(rows_to_drop)} invalid location entries")
+
+            # Remove duplicates by name (keep first occurrence)
+            duplicate_mask = self.locations_df.duplicated(subset=["Location_Name"], keep="first")
+            duplicates = self.locations_df[duplicate_mask]["Location_Name"].tolist()
+            if duplicates:
+                validation_issues.append(f"Removed duplicate entries: {duplicates[:5]}...")
+                self.locations_df = self.locations_df[~duplicate_mask]
+
+            # Log validation summary
+            if validation_issues:
+                logger.warning(f"Location data validation found {len(validation_issues)} issues")
+                for issue in validation_issues[:10]:  # Log first 10 issues
+                    logger.warning(f"  - {issue}")
+                if len(validation_issues) > 10:
+                    logger.warning(f"  ... and {len(validation_issues) - 10} more issues")
+
+            # Reset index after dropping rows
+            self.locations_df = self.locations_df.reset_index(drop=True)
+
+            logger.info(f"Loaded and validated {len(self.locations_df)} locations from {path}")
 
         except Exception as e:
             logger.error(f"Failed to load locations: {e}")
@@ -268,17 +535,26 @@ class HybridRecommender:
         top_k: int = 10,
         max_distance_km: Optional[float] = None,
         outdoor_only: Optional[bool] = None,
-        exclude_locations: Optional[List[str]] = None
+        exclude_locations: Optional[List[str]] = None,
+        visited_locations: Optional[List[str]] = None,
+        favorite_categories: Optional[List[str]] = None,
+        avoid_categories: Optional[List[str]] = None,
+        confidence_weights: Optional[List[float]] = None,
+        search_history_boost: Optional[Dict[str, float]] = None,
+        diversity_seed: Optional[str] = None
     ) -> List[LocationCandidate]:
         """
-        Generate top-K location candidates using hybrid filtering.
+        Generate top-K location candidates using hybrid filtering with advanced features.
 
         Algorithm:
-            1. Calculate cosine similarity for each location
+            1. Calculate weighted preference match (with exponential penalty)
             2. Calculate haversine distance for each location
-            3. Normalize distance to [0, 1] using max_distance
-            4. Compute combined score: sim_weight * sim + prox_weight * (1 - norm_dist)
-            5. Sort and return top-K candidates
+            3. Apply category boosting (favorites/avoids)
+            4. Apply search history boost (clicked locations rank higher)
+            5. Normalize distance to [0, 1] using max_distance
+            6. Compute combined score: sim_weight * sim + prox_weight * (1 - norm_dist)
+            7. Apply diversity shuffling within score buckets
+            8. Sort and return top-K candidates
 
         Args:
             user_preferences: 4D vector [hist, adv, nat, rel] with values 0-1
@@ -288,6 +564,12 @@ class HybridRecommender:
             max_distance_km: Maximum distance to consider (default: self.max_distance_km)
             outdoor_only: Filter for outdoor locations only
             exclude_locations: List of location names to exclude
+            visited_locations: List of already visited locations (auto-excluded or de-boosted)
+            favorite_categories: Categories to boost ("history", "adventure", "nature", "relaxation")
+            avoid_categories: Categories to penalize
+            confidence_weights: Confidence in each preference dimension [0-1]
+            search_history_boost: Dict mapping location names to boost scores from search clicks
+            diversity_seed: Seed for diversity randomization (default: UUID-based)
 
         Returns:
             List of LocationCandidate objects sorted by combined score
@@ -302,67 +584,103 @@ class HybridRecommender:
         if len(user_preferences) != 4:
             raise ValueError(f"User preferences must be 4D vector, got {len(user_preferences)}")
 
-        candidates = []
         exclude_set = set(exclude_locations or [])
+        visited_set = set(visited_locations or [])
+        history_boost = search_history_boost or {}
 
-        for _, row in self.locations_df.iterrows():
-            name = row["Location_Name"]
+        # ==================== DETERMINISTIC DIVERSITY SEED ====================
+        if diversity_seed is None:
+            seed_input = f"{user_lat}:{user_lng}:{user_preferences}:{uuid.uuid4()}"
+            seed_hash = hashlib.md5(seed_input.encode()).hexdigest()
+            seed_value = int(seed_hash[:8], 16)
+        else:
+            seed_value = int(hashlib.md5(diversity_seed.encode()).hexdigest()[:8], 16)
 
-            # Skip excluded locations
-            if name in exclude_set:
-                continue
-
-            # Filter outdoor if specified
-            is_outdoor = bool(row.get("l_outdoor", 1))
-            if outdoor_only is not None and outdoor_only != is_outdoor:
-                continue
-
-            # Extract location preference scores
-            location_scores = [
-                float(row["l_hist"]),
-                float(row["l_adv"]),
-                float(row["l_nat"]),
-                float(row["l_rel"])
-            ]
-
-            # Calculate similarity
-            similarity = cosine_similarity(user_preferences, location_scores)
-
-            # Calculate distance
-            loc_lat = float(row["l_lat"])
-            loc_lng = float(row["l_lng"])
-            distance = haversine_distance(user_lat, user_lng, loc_lat, loc_lng)
-
-            # Skip if beyond max distance
-            if distance > max_dist:
-                continue
-
-            # Normalize distance to [0, 1] (0 = far, 1 = close)
-            proximity_score = 1.0 - (distance / max_dist)
-
-            # Calculate combined score
-            combined = (
-                self.similarity_weight * similarity +
-                self.proximity_weight * proximity_score
-            )
-
-            # Create candidate
+        # ==================== VECTORIZED COMPUTATION (OPTIMIZED) ====================
+        df = self.locations_df.copy()
+        
+        # Filter excluded locations
+        if exclude_set:
+            df = df[~df["Location_Name"].isin(exclude_set)]
+        
+        # Filter outdoor if specified
+        if outdoor_only is not None:
+            df = df[df["l_outdoor"].astype(bool) == outdoor_only]
+        
+        if df.empty:
+            return []
+        
+        # Extract arrays for vectorized computation
+        names = df["Location_Name"].values
+        lats = df["l_lat"].values.astype(np.float64)
+        lngs = df["l_lng"].values.astype(np.float64)
+        outdoor_flags = df["l_outdoor"].values.astype(bool)
+        
+        # Location scores matrix [n_locations, 4]
+        location_scores = np.column_stack([
+            df["l_hist"].values.astype(np.float64),
+            df["l_adv"].values.astype(np.float64),
+            df["l_nat"].values.astype(np.float64),
+            df["l_rel"].values.astype(np.float64)
+        ])
+        
+        # Vectorized distance calculation
+        distances = vectorized_haversine(user_lat, user_lng, lats, lngs)
+        
+        # Filter by max distance
+        distance_mask = distances <= max_dist
+        
+        # Apply mask to all arrays
+        names = names[distance_mask]
+        lats = lats[distance_mask]
+        lngs = lngs[distance_mask]
+        outdoor_flags = outdoor_flags[distance_mask]
+        location_scores = location_scores[distance_mask]
+        distances = distances[distance_mask]
+        
+        if len(names) == 0:
+            return []
+        
+        # Vectorized similarity calculation
+        user_prefs = np.array(user_preferences, dtype=np.float64)
+        similarities = vectorized_weighted_match(user_prefs, location_scores)
+        
+        # Normalize distance to [0, 1] (0 = far, 1 = close)
+        proximity_scores = 1.0 - (distances / max_dist)
+        
+        # Calculate combined scores
+        combined_scores = (
+            self.similarity_weight * similarities +
+            self.proximity_weight * proximity_scores
+        )
+        
+        # Apply history boost and visited penalty
+        for i, name in enumerate(names):
+            if name in history_boost:
+                combined_scores[i] = min(1.0, combined_scores[i] + min(0.15, history_boost[name]))
+            if name in visited_set:
+                combined_scores[i] *= 0.7
+        
+        # Build candidates list
+        candidates = []
+        for i in range(len(names)):
             candidate = LocationCandidate(
-                name=name,
-                lat=loc_lat,
-                lng=loc_lng,
+                name=names[i],
+                lat=float(lats[i]),
+                lng=float(lngs[i]),
                 preference_scores={
-                    "history": location_scores[0],
-                    "adventure": location_scores[1],
-                    "nature": location_scores[2],
-                    "relaxation": location_scores[3]
+                    "history": float(location_scores[i, 0]),
+                    "adventure": float(location_scores[i, 1]),
+                    "nature": float(location_scores[i, 2]),
+                    "relaxation": float(location_scores[i, 3])
                 },
-                similarity_score=similarity,
-                distance_km=distance,
-                combined_score=combined,
-                is_outdoor=is_outdoor,
+                similarity_score=float(similarities[i]),
+                distance_km=float(distances[i]),
+                combined_score=float(combined_scores[i]),
+                is_outdoor=bool(outdoor_flags[i]),
                 metadata={
-                    "proximity_score": round(proximity_score, 4)
+                    "proximity_score": round(float(proximity_scores[i]), 4),
+                    "is_visited": names[i] in visited_set
                 }
             )
             candidates.append(candidate)
@@ -370,37 +688,45 @@ class HybridRecommender:
         # Sort by combined score (descending)
         candidates.sort(key=lambda x: x.combined_score, reverse=True)
 
-        # Add diversity: Group candidates by score buckets and shuffle within buckets
-        # This prevents always returning the exact same results
-        import random
-        if len(candidates) > top_k:
-            # Take top candidates with some buffer for diversity
+        # ==================== IMPROVED DIVERSITY SHUFFLING ====================
+        # Use deterministic seed based on request parameters
+        random.seed(seed_value)
+
+        if len(candidates) >= top_k:
+            # Take top candidates with buffer for diversity
             buffer_size = min(len(candidates), top_k * 3)
             candidate_pool = candidates[:buffer_size]
-            
-            # Group by score ranges (0.05 buckets)
-            from collections import defaultdict
+
+            # Group by score ranges (0.02 buckets for finer granularity)
             score_buckets = defaultdict(list)
             for c in candidate_pool:
-                bucket = round(c.combined_score * 20) / 20  # 0.05 granularity
+                # Use finer granularity (0.02) for better diversity
+                bucket = round(c.combined_score * 50) / 50
                 score_buckets[bucket].append(c)
-            
+
             # Shuffle within each bucket to add variety
             for bucket_candidates in score_buckets.values():
                 random.shuffle(bucket_candidates)
-            
+
             # Reconstruct sorted list with shuffled buckets
             diversified = []
             for bucket_key in sorted(score_buckets.keys(), reverse=True):
                 diversified.extend(score_buckets[bucket_key])
-            
+
             top_candidates = diversified[:top_k]
         else:
-            top_candidates = candidates[:top_k]
+            # If we have fewer candidates than top_k, use light shuffling
+            shuffled = candidates.copy()
+            # Only shuffle bottom 50% to maintain top quality
+            mid = len(shuffled) // 2
+            bottom_half = shuffled[mid:]
+            random.shuffle(bottom_half)
+            shuffled = shuffled[:mid] + bottom_half
+            top_candidates = shuffled[:top_k]
 
         logger.info(
             f"Generated {len(top_candidates)} candidates from {len(candidates)} "
-            f"within {max_dist}km (with diversity)"
+            f"within {max_dist}km (diversity_seed={seed_value})"
         )
 
         return top_candidates

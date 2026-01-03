@@ -22,6 +22,11 @@ class ItinerarySlotResponse(BaseModel):
         crowd_prediction: Expected crowd percentage
         lighting_quality: Golden hour assessment
         notes: Special considerations
+        day: Day number in multi-day trip
+        order: Order within the day
+        icon: Icon name for UI display
+        highlight: Whether this is a highlighted activity
+        ai_insight: AI-generated insight for this activity
     """
     time: str
     location: str
@@ -30,6 +35,11 @@ class ItinerarySlotResponse(BaseModel):
     crowd_prediction: float
     lighting_quality: str
     notes: Optional[str] = None
+    day: Optional[int] = None
+    order: Optional[int] = None
+    icon: Optional[str] = None
+    highlight: Optional[bool] = False
+    ai_insight: Optional[str] = None
 
 
 class ConstraintViolationResponse(BaseModel):
@@ -108,6 +118,101 @@ class ChatResponse(BaseModel):
                     "documents_retrieved": 5,
                     "web_search_used": False
                 }
+            }
+        }
+
+
+class TourPlanMetadataResponse(BaseModel):
+    """
+    Metadata for a generated tour plan.
+
+    Attributes:
+        match_score: Overall match score (0-100)
+        total_days: Number of days in the plan
+        total_locations: Number of locations covered
+        golden_hour_optimized: Whether golden hour is optimized
+        crowd_optimized: Whether crowd levels are optimized
+        event_aware: Whether events/holidays are considered
+    """
+    match_score: int = Field(default=85, ge=0, le=100)
+    total_days: int = Field(default=1, ge=1)
+    total_locations: int = Field(default=1, ge=1)
+    golden_hour_optimized: bool = True
+    crowd_optimized: bool = True
+    event_aware: bool = True
+
+
+class TourPlanResponse(BaseModel):
+    """
+    Response model for tour plan generation endpoint.
+
+    Attributes:
+        success: Whether plan generation was successful
+        thread_id: Session ID for conversation continuity
+        response: Generated response text summary
+        itinerary: List of itinerary slots organized by day
+        metadata: Plan metadata with scores and optimization info
+        constraints: Any constraint violations detected
+        reasoning_logs: Shadow monitor audit trail
+        warnings: List of warnings for the plan
+        tips: Helpful tips for the trip
+    """
+    success: bool = True
+    thread_id: str
+    response: str
+    itinerary: List[ItinerarySlotResponse] = Field(default_factory=list)
+    metadata: TourPlanMetadataResponse = Field(default_factory=TourPlanMetadataResponse)
+    constraints: Optional[List[ConstraintViolationResponse]] = None
+    reasoning_logs: Optional[List[ShadowMonitorLogResponse]] = None
+    warnings: Optional[List[str]] = None
+    tips: Optional[List[str]] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "thread_id": "tour_abc123",
+                "response": "🗺️ Your 2-Day Sri Lanka Adventure covering 2 amazing locations!",
+                "itinerary": [
+                    {
+                        "time": "06:30",
+                        "location": "Sigiriya Rock Fortress",
+                        "activity": "Arrival & Tickets",
+                        "duration_minutes": 30,
+                        "crowd_prediction": 15.0,
+                        "lighting_quality": "golden",
+                        "notes": "Collect tickets early to avoid the 8 AM rush",
+                        "day": 1,
+                        "order": 0,
+                        "icon": "ticket",
+                        "highlight": False,
+                        "ai_insight": None
+                    },
+                    {
+                        "time": "07:00",
+                        "location": "Sigiriya Rock Fortress",
+                        "activity": "Water Gardens",
+                        "duration_minutes": 45,
+                        "crowd_prediction": 20.0,
+                        "lighting_quality": "golden",
+                        "notes": "Best reflection shots of the rock fortress",
+                        "day": 1,
+                        "order": 1,
+                        "icon": "water",
+                        "highlight": True,
+                        "ai_insight": "Golden Hour Alert: Best reflection shots of the rock fortress."
+                    }
+                ],
+                "metadata": {
+                    "match_score": 98,
+                    "total_days": 2,
+                    "total_locations": 2,
+                    "golden_hour_optimized": True,
+                    "crowd_optimized": True,
+                    "event_aware": True
+                },
+                "warnings": ["Poya day on Jan 6 - modest dress required"],
+                "tips": ["Start early to avoid crowds", "Bring water bottles"]
             }
         }
 

@@ -48,7 +48,7 @@ Research Pattern:
 
 import logging
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # LangGraph imports
 try:
@@ -67,7 +67,20 @@ try:
 except ImportError:
     LANGCHAIN_AVAILABLE = False
 
-# OpenAI LLM
+# Gemini LLM (Primary - Free tier available)
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GEMINI_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: langchain_google_genai import failed: {e}")
+    GEMINI_AVAILABLE = False
+    ChatGoogleGenerativeAI = None
+except Exception as e:
+    print(f"WARNING: langchain_google_genai import error: {e}")
+    GEMINI_AVAILABLE = False
+    ChatGoogleGenerativeAI = None
+
+# OpenAI LLM (Fallback)
 try:
     from langchain_openai import ChatOpenAI
     OPENAI_AVAILABLE = True
@@ -80,7 +93,7 @@ except Exception as e:
     OPENAI_AVAILABLE = False
     ChatOpenAI = None
 
-# Ollama LLM (fallback)
+# Ollama LLM (Local fallback)
 try:
     from langchain_community.chat_models import ChatOllama
     OLLAMA_AVAILABLE = True
@@ -88,7 +101,7 @@ except ImportError:
     OLLAMA_AVAILABLE = False
     ChatOllama = None
 
-from .state import GraphState, create_initial_state
+from .state import GraphState, create_initial_state, TourPlanContext
 from .nodes import (
     router_node,
     retrieval_node,
@@ -97,9 +110,11 @@ from .nodes import (
     shadow_monitor_node,
     generator_node,
     verifier_node,
+    tour_plan_generator_node,
     route_by_intent,
     route_after_grading,
     route_after_verification,
+    route_to_plan_generator,
 )
 from ..config import settings
 
@@ -111,12 +126,12 @@ class TravionAgentGraph:
     Agentic Tour Guide workflow using LangGraph.
 
     This class encapsulates the complete reasoning loop, including:
-    - LLM initialization (OpenAI or Ollama)
+    - LLM initialization (Gemini, OpenAI, or Ollama)
     - Graph construction
     - Execution interface
 
     Attributes:
-        llm: LangChain chat model (OpenAI GPT-4o or Ollama)
+        llm: LangChain chat model (Gemini, OpenAI, or Ollama)
         graph: Compiled LangGraph StateGraph
         memory: Checkpoint memory for conversation persistence
 
@@ -136,8 +151,8 @@ class TravionAgentGraph:
         Initialize the Travion Agent Graph.
 
         Args:
-            llm_provider: "openai" or "ollama" (defaults to settings.LLM_PROVIDER)
-            model_name: Model to use (e.g., "gpt-4o-mini" or "llama3.1:8b")
+            llm_provider: "gemini", "openai", or "ollama" (defaults to settings.LLM_PROVIDER)
+            model_name: Model to use (e.g., "gemini-1.5-flash", "gpt-4o-mini", or "llama3.1:8b")
             temperature: LLM sampling temperature
         """
         self.llm = None
@@ -148,7 +163,47 @@ class TravionAgentGraph:
         provider = llm_provider or settings.LLM_PROVIDER
 
         # Initialize LLM based on provider
-        if provider == "openai" and OPENAI_AVAILABLE:
+        if provider == "gemini" and GEMINI_AVAILABLE:
+            self._init_gemini(model_name, temperature)
+        elif provider == "openai" and OPENAI_AVAILABLE:
+            self._init_openai(model_name, temperature)
+        elif provider == "ollama" and OLLAMA_AVAILABLE:
+            self._init_ollama(model_name, temperature)
+        else:
+            logger.warning(f"LLM provider '{provider}' not available, trying fallbacks...")
+            # Try Gemini first (free tier), then OpenAI, then Ollama
+            if GEMINI_AVAILABLE and settings.GOOGLE_API_KEY:
+                self._init_gemini(model_name, temperature)
+            elif OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
+                self._init_openai(model_name, temperature)
+            elif OLLAMA_AVAILABLE:
+                self._init_ollama(model_name, temperature)
+
+        # Build graph
+        if LANGGRAPH_AVAILABLE:
+            self._build_graph()
+        else:
+            logger.error("LangGraph not available. Install with: pip install langgraph")
+
+    def _init_gemini(self, model_name: Optional[str], temperature: float):
+        """Initialize Google Gemini LLM."""
+        if GEMINI_AVAILABLE:
+            try:
+                self.llm = ChatGoogleGenerativeAI(
+                    model=model_name or settings.GEMINI_MODEL,
+                    temperature=temperature,
+                    google_api_key=settings.GOOGLE_API_KEY,
+                    convert_system_message_to_human=True  # Gemini compatibility
+                )
+                logger.info(f"Gemini LLM initialized: {model_name or settings.GEMINI_MODEL}")
+            except Exception as e:
+                logger.warning(f"Could not initialize Gemini: {e}")
+                # Fallback to OpenAI
+                self._init_openai(model_name, temperature)
+
+    def _init_openai(self, model_name: Optional[str], temperature: float):
+        """Initialize OpenAI LLM."""
+        if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
             try:
                 self.llm = ChatOpenAI(
                     model=model_name or settings.OPENAI_MODEL,
@@ -158,30 +213,8 @@ class TravionAgentGraph:
                 logger.info(f"OpenAI LLM initialized: {model_name or settings.OPENAI_MODEL}")
             except Exception as e:
                 logger.warning(f"Could not initialize OpenAI: {e}")
-                # Try Ollama as fallback
+                # Fallback to Ollama
                 self._init_ollama(model_name, temperature)
-        elif provider == "ollama" and OLLAMA_AVAILABLE:
-            self._init_ollama(model_name, temperature)
-        else:
-            logger.warning(f"LLM provider '{provider}' not available, trying fallback...")
-            if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
-                try:
-                    self.llm = ChatOpenAI(
-                        model=settings.OPENAI_MODEL,
-                        temperature=temperature,
-                        api_key=settings.OPENAI_API_KEY
-                    )
-                    logger.info(f"Fallback to OpenAI: {settings.OPENAI_MODEL}")
-                except Exception as e:
-                    logger.error(f"OpenAI fallback failed: {e}")
-            elif OLLAMA_AVAILABLE:
-                self._init_ollama(model_name, temperature)
-
-        # Build graph
-        if LANGGRAPH_AVAILABLE:
-            self._build_graph()
-        else:
-            logger.error("LangGraph not available. Install with: pip install langgraph")
 
     def _init_ollama(self, model_name: Optional[str], temperature: float):
         """Initialize Ollama LLM."""
@@ -206,7 +239,7 @@ class TravionAgentGraph:
         3. Grader → assesses document relevance
         4. Web Search → fallback for insufficient docs
         5. Shadow Monitor → constraint checking
-        6. Generator → produces response
+        6. Generator → produces response (or Tour Plan Generator for plans)
         7. Verifier → validates and may loop for correction
         """
         # Create the graph with our state schema
@@ -219,6 +252,7 @@ class TravionAgentGraph:
         workflow.add_node("web_search", self._web_search_wrapper)
         workflow.add_node("shadow_monitor", self._shadow_monitor_wrapper)
         workflow.add_node("generate", self._generator_wrapper)
+        workflow.add_node("tour_plan_generate", self._tour_plan_generator_wrapper)
         workflow.add_node("verify", self._verifier_wrapper)
 
         # Set entry point
@@ -227,11 +261,12 @@ class TravionAgentGraph:
         # Add conditional edges from router
         workflow.add_conditional_edges(
             "router",
-            route_by_intent,
+            self._route_after_router,
             {
-                "generate": "generate",      # Greetings/off-topic → direct generation
-                "retrieve": "retrieve",       # Tourism queries → retrieval
-                "web_search": "web_search"    # Real-time info → web search
+                "generate": "generate",           # Greetings/off-topic → direct generation
+                "retrieve": "retrieve",            # Tourism queries → retrieval
+                "web_search": "web_search",        # Real-time info → web search
+                "tour_plan": "retrieve"            # Tour plan → retrieval first
             }
         )
 
@@ -251,11 +286,21 @@ class TravionAgentGraph:
         # Web search → Shadow Monitor
         workflow.add_edge("web_search", "shadow_monitor")
 
-        # Shadow Monitor → Generate
-        workflow.add_edge("shadow_monitor", "generate")
+        # Shadow Monitor → Generate or Tour Plan Generate
+        workflow.add_conditional_edges(
+            "shadow_monitor",
+            self._route_after_shadow_monitor,
+            {
+                "generate": "generate",
+                "tour_plan_generate": "tour_plan_generate"
+            }
+        )
 
         # Generate → Verify
         workflow.add_edge("generate", "verify")
+        
+        # Tour Plan Generate → Verify
+        workflow.add_edge("tour_plan_generate", "verify")
 
         # Conditional edges from verifier
         workflow.add_conditional_edges(
@@ -272,6 +317,21 @@ class TravionAgentGraph:
         self.graph = workflow.compile(checkpointer=self.memory)
 
         logger.info("LangGraph workflow compiled successfully")
+
+    def _route_after_router(self, state: GraphState) -> str:
+        """Route after router based on intent and tour plan context."""
+        # Check if this is a tour plan request
+        if state.get("tour_plan_context"):
+            return "tour_plan"
+        
+        # Otherwise use standard intent routing
+        return route_by_intent(state)
+
+    def _route_after_shadow_monitor(self, state: GraphState) -> str:
+        """Route after shadow monitor to either generator or tour plan generator."""
+        if state.get("tour_plan_context"):
+            return "tour_plan_generate"
+        return "generate"
 
     # Node wrappers that inject LLM
     async def _router_wrapper(self, state: GraphState) -> GraphState:
@@ -298,6 +358,10 @@ class TravionAgentGraph:
         """Wrapper for generator node with LLM injection."""
         return await generator_node(state, self.llm)
 
+    async def _tour_plan_generator_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for tour plan generator node with LLM injection."""
+        return await tour_plan_generator_node(state, self.llm)
+
     async def _verifier_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for verifier node with LLM injection."""
         return await verifier_node(state, self.llm)
@@ -306,7 +370,9 @@ class TravionAgentGraph:
         self,
         query: str,
         thread_id: Optional[str] = None,
-        target_location: Optional[str] = None
+        target_location: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        tour_plan_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute the agent workflow for a user query.
@@ -315,6 +381,8 @@ class TravionAgentGraph:
             query: User's input message
             thread_id: Optional thread ID for conversation persistence
             target_location: Optional location name to focus retrieval on
+            conversation_history: Optional list of previous messages for context
+            tour_plan_context: Optional context for tour plan generation
 
         Returns:
             Dict with final state including response and logs
@@ -325,6 +393,14 @@ class TravionAgentGraph:
 
             >>> # Location-specific chat
             >>> result = await agent.invoke("What's the best time to visit?", target_location="Sigiriya")
+
+            >>> # With conversation history
+            >>> history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
+            >>> result = await agent.invoke("Tell me more", conversation_history=history)
+            
+            >>> # Tour plan generation
+            >>> context = {"selected_locations": [...], "start_date": "2026-01-05", "end_date": "2026-01-07"}
+            >>> result = await agent.invoke("Generate my tour plan", tour_plan_context=context)
         """
         if not self.graph:
             return {
@@ -332,8 +408,13 @@ class TravionAgentGraph:
                 "final_response": "I'm having trouble processing your request. Please try again."
             }
 
-        # Create initial state with optional target location
-        initial_state = create_initial_state(query, target_location=target_location)
+        # Create initial state with optional target location, conversation history, and tour plan context
+        initial_state = create_initial_state(
+            query, 
+            target_location=target_location,
+            conversation_history=conversation_history,
+            tour_plan_context=tour_plan_context
+        )
 
         # Configure thread (always required when using checkpointer)
         config = {
@@ -351,6 +432,7 @@ class TravionAgentGraph:
                 "intent": final_state.get("intent").value if final_state.get("intent") else None,
                 "final_response": final_state.get("final_response") or final_state.get("generated_response"),
                 "itinerary": final_state.get("itinerary"),
+                "tour_plan_metadata": final_state.get("tour_plan_metadata"),
                 "constraint_violations": final_state.get("constraint_violations"),
                 "shadow_monitor_logs": final_state.get("shadow_monitor_logs"),
                 "reasoning_loops": final_state.get("reasoning_loops", 0),
@@ -372,7 +454,8 @@ class TravionAgentGraph:
         self,
         query: str,
         thread_id: Optional[str] = None,
-        target_location: Optional[str] = None
+        target_location: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None
     ):
         """
         Stream the agent execution step by step.
@@ -384,6 +467,7 @@ class TravionAgentGraph:
             query: User's input message
             thread_id: Optional thread ID
             target_location: Optional location name to focus retrieval on
+            conversation_history: Optional list of previous messages for context
 
         Yields:
             Dict with node name and current state
@@ -392,7 +476,11 @@ class TravionAgentGraph:
             yield {"error": "Graph not initialized"}
             return
 
-        initial_state = create_initial_state(query, target_location=target_location)
+        initial_state = create_initial_state(
+            query, 
+            target_location=target_location,
+            conversation_history=conversation_history
+        )
         config = {
             "configurable": {
                 "thread_id": thread_id or str(uuid.uuid4())
@@ -443,6 +531,8 @@ graph TD
     grader -->|insufficient| web_search
     web_search --> shadow_monitor
     shadow_monitor --> generate
+    shadow_monitor -->|tour_plan| tour_plan_generate[Tour Plan Generator]
+    tour_plan_generate --> verify
     generate --> verify[Verifier]
     verify -->|approved| END([End])
     verify -->|needs_correction| generate
@@ -469,7 +559,9 @@ def get_agent() -> TravionAgentGraph:
 async def invoke_agent(
     query: str,
     thread_id: Optional[str] = None,
-    target_location: Optional[str] = None
+    target_location: Optional[str] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    tour_plan_context: Optional[Dict[str, Any]] = None
 ) -> Dict:
     """
     Convenience function to invoke the agent.
@@ -478,9 +570,17 @@ async def invoke_agent(
         query: User's query
         thread_id: Optional conversation thread ID
         target_location: Optional location name to focus retrieval on
+        conversation_history: Optional list of previous messages for context
+        tour_plan_context: Optional context for tour plan generation
 
     Returns:
         Dict with agent response
     """
     agent = get_agent()
-    return await agent.invoke(query, thread_id, target_location=target_location)
+    return await agent.invoke(
+        query, 
+        thread_id, 
+        target_location=target_location, 
+        conversation_history=conversation_history,
+        tour_plan_context=tour_plan_context
+    )

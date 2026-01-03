@@ -11,12 +11,13 @@ Nodes:
     - shadow_monitor: Multi-constraint validation
     - generator: LLM response generation
     - verifier: Final self-correction check
+    - tour_plan_generator: Multi-day itinerary generation
 
 Research Architecture:
     The nodes implement a "Reflective RAG" pattern with:
     1. Perception (router, retrieval)
     2. Reflection (grader, shadow_monitor)
-    3. Action (generator)
+    3. Action (generator, tour_plan_generator)
     4. Verification (verifier with correction loop)
 """
 
@@ -27,6 +28,7 @@ from .web_search import web_search_node
 from .shadow_monitor import shadow_monitor_node, get_shadow_monitor
 from .generator import generator_node
 from .verifier import verifier_node, route_after_verification
+from .tour_plan_generator import tour_plan_generator_node, route_to_plan_generator
 
 __all__ = [
     # Nodes
@@ -37,10 +39,12 @@ __all__ = [
     "shadow_monitor_node",
     "generator_node",
     "verifier_node",
+    "tour_plan_generator_node",
     # Routing functions
     "route_by_intent",
     "route_after_grading",
     "route_after_verification",
+    "route_to_plan_generator",
     # Utilities
     "extract_entities",
     "get_vectordb_service",

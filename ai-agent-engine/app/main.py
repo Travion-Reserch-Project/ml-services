@@ -34,12 +34,15 @@ from .schemas import (
     ChatRequest,
     LocationChatRequest,
     PlanRequest,
+    TourPlanGenerateRequest,
     CrowdPredictionRequest,
     EventCheckRequest,
     GoldenHourRequest,
     EventImpactRequest,
     PhysicsGoldenHourRequest,
     ChatResponse,
+    TourPlanResponse,
+    TourPlanMetadataResponse,
     CrowdPredictionResponse,
     EventCheckResponse,
     GoldenHourResponse,
@@ -69,6 +72,7 @@ from .schemas.recommendation import (
     ExplanationResponse,
     GeoLocation,
     ConstraintCheck,
+    PreferenceConfidence,
 )
 from .graph import get_agent, invoke_agent
 from .tools import (
@@ -308,11 +312,21 @@ async def location_chat(request: LocationChatRequest):
                 f"relaxation={request.user_preferences.relaxation}"
             )
 
-        # Invoke the agent with location focus
+        # Convert conversation history to the format expected by the agent
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+            logger.info(f"Location chat includes {len(conversation_history)} previous messages")
+
+        # Invoke the agent with location focus and conversation history
         result = await invoke_agent(
             query=enriched_query,
             thread_id=request.thread_id,
-            target_location=request.location_name
+            target_location=request.location_name,
+            conversation_history=conversation_history
         )
 
         # Check for errors
@@ -362,6 +376,196 @@ async def location_chat(request: LocationChatRequest):
 
 
 # =============================================================================
+# TOUR PLAN GENERATION ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/tour-plan/generate",
+    response_model=TourPlanResponse,
+    tags=["Tour Planning"],
+    summary="Generate an optimized tour plan",
+    description="""
+    Generate a comprehensive multi-day tour plan using the agentic RAG workflow.
+
+    The agent will:
+    1. Analyze selected locations and date range
+    2. Retrieve relevant knowledge for each location
+    3. Optimize visit order based on distance and logistics
+    4. Check constraints (Poya days, crowds, weather)
+    5. Generate optimized itinerary with golden hour timing
+    6. Provide AI insights for each activity
+
+    Features:
+    - Multi-day itinerary generation
+    - Crowd prediction and avoidance
+    - Golden hour optimization for photography
+    - Event/holiday awareness
+    - Session-based conversation continuity for plan refinement
+    """
+)
+async def generate_tour_plan(request: TourPlanGenerateRequest):
+    """
+    Tour plan generation endpoint.
+
+    Args:
+        request: TourPlanGenerateRequest with locations, dates, and preferences
+
+    Returns:
+        TourPlanResponse with optimized itinerary and metadata
+    """
+    import uuid
+    
+    try:
+        # Generate or use provided thread_id
+        thread_id = request.thread_id or f"tour_{uuid.uuid4().hex[:12]}"
+        
+        # Build tour plan context
+        tour_plan_context = {
+            "selected_locations": [
+                {
+                    "name": loc.name,
+                    "latitude": loc.latitude,
+                    "longitude": loc.longitude,
+                    "image_url": loc.image_url,
+                    "distance_km": loc.distance_km,
+                }
+                for loc in request.selected_locations
+            ],
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "preferences": request.preferences,
+            "constraints": None,
+        }
+        
+        # Build the query message
+        location_names = [loc.name for loc in request.selected_locations]
+        query = request.message or f"Generate an optimized tour plan for {', '.join(location_names)} from {request.start_date} to {request.end_date}"
+        
+        logger.info(f"Generating tour plan for {len(location_names)} locations: {location_names}")
+        
+        # Invoke the agent with tour plan context
+        result = await invoke_agent(
+            query=query,
+            thread_id=thread_id,
+            target_location=location_names[0] if location_names else None,
+            tour_plan_context=tour_plan_context
+        )
+        
+        # Check for errors
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Build itinerary response
+        itinerary = []
+        for slot in (result.get("itinerary") or []):
+            itinerary.append(ItinerarySlotResponse(
+                time=slot.get("time", "09:00"),
+                location=slot.get("location", ""),
+                activity=slot.get("activity", ""),
+                duration_minutes=slot.get("duration_minutes", 60),
+                crowd_prediction=slot.get("crowd_prediction", 50),
+                lighting_quality=slot.get("lighting_quality", "good"),
+                notes=slot.get("notes"),
+                day=slot.get("day"),
+                order=slot.get("order"),
+                icon=slot.get("icon"),
+                highlight=slot.get("highlight", False),
+                ai_insight=slot.get("ai_insight"),
+            ))
+        
+        # Build metadata response
+        plan_metadata = result.get("tour_plan_metadata") or {}
+        metadata = TourPlanMetadataResponse(
+            match_score=plan_metadata.get("match_score", 85),
+            total_days=plan_metadata.get("total_days", 1),
+            total_locations=plan_metadata.get("total_locations", len(location_names)),
+            golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
+            crowd_optimized=plan_metadata.get("crowd_optimized", True),
+            event_aware=plan_metadata.get("event_aware", True),
+        )
+        
+        # Build constraint violations
+        constraints = None
+        if result.get("constraint_violations"):
+            constraints = [
+                ConstraintViolationResponse(
+                    constraint_type=c.get("constraint_type", "unknown"),
+                    description=c.get("description", ""),
+                    severity=c.get("severity", "medium"),
+                    suggestion=c.get("suggestion", "")
+                )
+                for c in result.get("constraint_violations", [])
+            ]
+        
+        # Build reasoning logs
+        reasoning_logs = None
+        if result.get("shadow_monitor_logs"):
+            reasoning_logs = [
+                ShadowMonitorLogResponse(
+                    timestamp=log.get("timestamp", ""),
+                    check_type=log.get("check_type", ""),
+                    result=log.get("result", ""),
+                    details=log.get("details", "")
+                )
+                for log in result.get("shadow_monitor_logs", [])
+            ]
+        
+        return TourPlanResponse(
+            success=True,
+            thread_id=thread_id,
+            response=result.get("final_response", "Tour plan generated successfully!"),
+            itinerary=itinerary,
+            metadata=metadata,
+            constraints=constraints,
+            reasoning_logs=reasoning_logs,
+            warnings=None,  # TODO: Extract from constraints
+            tips=None,  # TODO: Extract from response
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Tour plan generation error: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/tour-plan/refine",
+    response_model=TourPlanResponse,
+    tags=["Tour Planning"],
+    summary="Refine an existing tour plan",
+    description="""
+    Refine an existing tour plan based on user feedback.
+    
+    Uses the session thread_id to maintain conversation context
+    and apply modifications to the previously generated plan.
+    """
+)
+async def refine_tour_plan(request: TourPlanGenerateRequest):
+    """
+    Tour plan refinement endpoint.
+    
+    Requires thread_id from a previous generate call.
+    """
+    if not request.thread_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="thread_id is required for plan refinement. Generate a plan first."
+        )
+    
+    if not request.message:
+        raise HTTPException(
+            status_code=400,
+            detail="message is required for plan refinement. Specify what changes you want."
+        )
+    
+    # Use the same generate logic with the existing thread_id
+    return await generate_tour_plan(request)
+
+
+# =============================================================================
 # RECOMMENDATION ENDPOINTS
 # =============================================================================
 
@@ -388,6 +592,7 @@ async def get_recommendations(request: RecommendationRequest):
     Hybrid Recommendation Endpoint.
 
     Combines mathematical retrieval with LLM-based contextual re-ranking.
+    Enhanced with confidence weights, category boosting, and personalization.
 
     Args:
         request: RecommendationRequest with user preferences and location
@@ -403,6 +608,11 @@ async def get_recommendations(request: RecommendationRequest):
         recommender = get_recommender()
         user_prefs = request.preferences.to_vector()
 
+        # Get confidence weights if provided
+        confidence_weights = None
+        if request.preference_confidence:
+            confidence_weights = request.preference_confidence.to_vector()
+
         candidates = recommender.get_candidates(
             user_preferences=user_prefs,
             user_lat=request.current_lat,
@@ -410,7 +620,12 @@ async def get_recommendations(request: RecommendationRequest):
             top_k=request.top_k * 3,  # Get 3x for re-ranking buffer
             max_distance_km=request.max_distance_km,  # Use request's max distance (default 20km)
             outdoor_only=request.outdoor_only,
-            exclude_locations=request.exclude_locations
+            exclude_locations=request.exclude_locations,
+            visited_locations=request.visited_locations,
+            favorite_categories=request.favorite_categories,
+            avoid_categories=request.avoid_categories,
+            confidence_weights=confidence_weights,
+            search_history_boost=request.search_history
         )
 
         if not candidates:
@@ -1732,7 +1947,7 @@ async def simple_recommend(request: SimpleRecommendationRequest):
             user_lng=request.longitude,
             top_k=request.top_k,
             max_distance_km=request.max_distance_km,
-            outdoor_only=False,
+            outdoor_only=request.outdoor_only,  # Use request's outdoor_only filter
             exclude_locations=[]
         )
 
@@ -1745,9 +1960,12 @@ async def simple_recommend(request: SimpleRecommendationRequest):
                 recommendations=[]
             )
 
-        # Build response
+        # Build response with optional min_match_score filtering
         recommendations = []
         for idx, candidate in enumerate(candidates, start=1):
+            # Skip candidates below minimum match score threshold
+            if candidate.similarity_score < request.min_match_score:
+                continue
             recommendations.append(SimpleRecommendationLocation(
                 rank=idx,
                 name=candidate.name,
@@ -1759,6 +1977,10 @@ async def simple_recommend(request: SimpleRecommendationRequest):
                 is_outdoor=candidate.is_outdoor,
                 description=None
             ))
+
+        # Re-rank after filtering to ensure consecutive ranks
+        for idx, rec in enumerate(recommendations, start=1):
+            rec.rank = idx
 
         return SimpleRecommendationResponse(
             success=True,

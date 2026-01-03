@@ -87,11 +87,43 @@ class GeoLocation(BaseModel):
         }
 
 
+class PreferenceConfidence(BaseModel):
+    """
+    Confidence weights for each preference dimension.
+    Higher values mean user is more certain about that preference.
+    """
+    history: float = Field(
+        default=1.0,
+        ge=0.0, le=1.0,
+        description="Confidence in history preference (0-1)"
+    )
+    adventure: float = Field(
+        default=1.0,
+        ge=0.0, le=1.0,
+        description="Confidence in adventure preference (0-1)"
+    )
+    nature: float = Field(
+        default=1.0,
+        ge=0.0, le=1.0,
+        description="Confidence in nature preference (0-1)"
+    )
+    relaxation: float = Field(
+        default=1.0,
+        ge=0.0, le=1.0,
+        description="Confidence in relaxation preference (0-1)"
+    )
+
+    def to_vector(self) -> List[float]:
+        """Convert to 4D confidence vector [hist, adv, nat, rel]."""
+        return [self.history, self.adventure, self.nature, self.relaxation]
+
+
 class RecommendationRequest(BaseModel):
     """
     Request body for POST /recommend endpoint.
 
     Combines user identity, location, preferences, and constraints.
+    Enhanced with confidence weights, category boosting, and personalization.
     """
     user_id: Optional[str] = Field(
         default=None,
@@ -110,6 +142,10 @@ class RecommendationRequest(BaseModel):
     preferences: UserPreferences = Field(
         default_factory=UserPreferences,
         description="User preference vector"
+    )
+    preference_confidence: Optional[PreferenceConfidence] = Field(
+        default=None,
+        description="Confidence weights for preferences (new users have lower confidence)"
     )
     target_datetime: Optional[dt] = Field(
         default=None,
@@ -133,6 +169,22 @@ class RecommendationRequest(BaseModel):
         default=None,
         description="List of location names to exclude"
     )
+    visited_locations: Optional[List[str]] = Field(
+        default=None,
+        description="Previously visited locations (will be de-prioritized)"
+    )
+    favorite_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Categories to boost: 'history', 'adventure', 'nature', 'relaxation'"
+    )
+    avoid_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Categories to penalize: 'history', 'adventure', 'nature', 'relaxation'"
+    )
+    search_history: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Search history boost: location names mapped to click-through scores"
+    )
 
     @field_validator("current_lat")
     @classmethod
@@ -152,6 +204,17 @@ class RecommendationRequest(BaseModel):
             pass
         return v
 
+    @field_validator("favorite_categories", "avoid_categories")
+    @classmethod
+    def validate_categories(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate category names."""
+        valid_categories = {"history", "adventure", "nature", "relaxation"}
+        if v:
+            invalid = set(v) - valid_categories
+            if invalid:
+                raise ValueError(f"Invalid categories: {invalid}. Valid: {valid_categories}")
+        return v
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -164,9 +227,19 @@ class RecommendationRequest(BaseModel):
                     "nature": 0.6,
                     "relaxation": 0.4
                 },
+                "preference_confidence": {
+                    "history": 1.0,
+                    "adventure": 0.7,
+                    "nature": 0.9,
+                    "relaxation": 0.5
+                },
                 "target_datetime": "2025-12-28T09:00:00",
                 "max_distance_km": 20.0,
-                "top_k": 3
+                "top_k": 3,
+                "visited_locations": ["Sigiriya Lion Rock", "Temple of the Tooth"],
+                "favorite_categories": ["history", "nature"],
+                "avoid_categories": [],
+                "search_history": {"Polonnaruwa Ruins": 0.1, "Dambulla Cave Temple": 0.05}
             }
         }
 

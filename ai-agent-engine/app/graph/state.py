@@ -113,6 +113,11 @@ class ItinerarySlot(TypedDict):
         crowd_prediction: Expected crowd level (0-100)
         lighting_quality: Golden hour assessment
         notes: Special considerations
+        day: Day number in multi-day trip (1-indexed)
+        order: Order within the day
+        icon: Icon name for UI display
+        highlight: Whether this is a highlighted activity
+        ai_insight: AI-generated insight for this activity
     """
     time: str
     location: str
@@ -121,6 +126,49 @@ class ItinerarySlot(TypedDict):
     crowd_prediction: float
     lighting_quality: str
     notes: Optional[str]
+    day: Optional[int]
+    order: Optional[int]
+    icon: Optional[str]
+    highlight: Optional[bool]
+    ai_insight: Optional[str]
+
+
+class TourPlanContext(TypedDict):
+    """
+    Context for tour plan generation requests.
+
+    Attributes:
+        selected_locations: List of locations to include in the plan
+        start_date: Trip start date (ISO format)
+        end_date: Trip end date (ISO format)
+        preferences: User preferences (photography, adventure, etc.)
+        constraints: User constraints (avoid crowds, etc.)
+    """
+    selected_locations: List[Dict[str, Any]]
+    start_date: str
+    end_date: str
+    preferences: Optional[List[str]]
+    constraints: Optional[List[str]]
+
+
+class TourPlanMetadata(TypedDict):
+    """
+    Metadata for a generated tour plan.
+
+    Attributes:
+        match_score: Overall match score (0-100)
+        total_days: Number of days in the plan
+        total_locations: Number of locations covered
+        golden_hour_optimized: Whether golden hour is optimized
+        crowd_optimized: Whether crowd levels are optimized
+        event_aware: Whether events/holidays are considered
+    """
+    match_score: int
+    total_days: int
+    total_locations: int
+    golden_hour_optimized: bool
+    crowd_optimized: bool
+    event_aware: bool
 
 
 class GraphState(TypedDict):
@@ -163,6 +211,9 @@ class GraphState(TypedDict):
         final_response: Verified and corrected response
         itinerary: Structured trip plan (if requested)
 
+        tour_plan_context: Context for tour plan generation
+        tour_plan_metadata: Metadata about the generated plan
+
         reasoning_loops: Counter to prevent infinite loops
         error: Any error encountered during processing
     """
@@ -192,6 +243,10 @@ class GraphState(TypedDict):
     final_response: Optional[str]
     itinerary: Optional[List[ItinerarySlot]]
 
+    # Tour Plan State
+    tour_plan_context: Optional[TourPlanContext]
+    tour_plan_metadata: Optional[TourPlanMetadata]
+
     # Control Flow
     reasoning_loops: int
     error: Optional[str]
@@ -199,7 +254,9 @@ class GraphState(TypedDict):
 
 def create_initial_state(
     user_query: str,
-    target_location: Optional[str] = None
+    target_location: Optional[str] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    tour_plan_context: Optional[TourPlanContext] = None
 ) -> GraphState:
     """
     Factory function to create a fresh GraphState for a new query.
@@ -207,6 +264,8 @@ def create_initial_state(
     Args:
         user_query: The user's input message
         target_location: Optional location to focus retrieval on (for location-specific chats)
+        conversation_history: Optional list of previous messages for conversation context
+        tour_plan_context: Optional context for tour plan generation
 
     Returns:
         GraphState: Initialized state ready for graph execution
@@ -219,9 +278,22 @@ def create_initial_state(
         >>> state = create_initial_state("What's the best time to visit?", target_location="Sigiriya")
         >>> state["target_location"]
         'Sigiriya'
+
+        >>> history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
+        >>> state = create_initial_state("Tell me more", conversation_history=history)
+        >>> len(state["messages"])
+        3
     """
+    # Start with conversation history if provided, otherwise empty list
+    messages = []
+    if conversation_history:
+        messages.extend(conversation_history)
+    
+    # Add the current user query
+    messages.append({"role": "user", "content": user_query})
+    
     return GraphState(
-        messages=[{"role": "user", "content": user_query}],
+        messages=messages,
         user_query=user_query,
         intent=None,
         retrieved_documents=[],
@@ -236,6 +308,8 @@ def create_initial_state(
         generated_response=None,
         final_response=None,
         itinerary=None,
+        tour_plan_context=tour_plan_context,
+        tour_plan_metadata=None,
         reasoning_loops=0,
         error=None
     )

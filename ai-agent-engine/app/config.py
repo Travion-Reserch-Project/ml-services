@@ -45,13 +45,17 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     # LLM Configuration
-    # Set LLM_PROVIDER to "openai" or "ollama"
+    # Set LLM_PROVIDER to "gemini", "openai", or "ollama"
     LLM_PROVIDER: str = "openai"
 
-    # OpenAI Configuration
-    OPENAI_MODEL: str = "gpt-4o-mini"  # or "gpt-4o" for better quality
+    # Gemini Configuration (Primary - Free tier available)
+    GOOGLE_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-1.5-flash"  # or "gemini-1.5-pro" for better quality
 
-    # Ollama Configuration (fallback)
+    # OpenAI Configuration (Fallback)
+    OPENAI_MODEL: str = "gpt-4o"  # or "gpt-4o" for better quality
+
+    # Ollama Configuration (Local fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
 

@@ -6,9 +6,10 @@ All requests are validated before processing by the agent.
 """
 
 from __future__ import annotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime as dt
+import re
 
 
 class ChatRequest(BaseModel):
@@ -37,6 +38,25 @@ class ChatRequest(BaseModel):
     )
 
 
+class ConversationMessage(BaseModel):
+    """
+    A single message in the conversation history.
+
+    Attributes:
+        role: Either 'user' or 'assistant'
+        content: The message content
+    """
+    role: str = Field(
+        ...,
+        description="Role of the message sender",
+        examples=["user", "assistant"]
+    )
+    content: str = Field(
+        ...,
+        description="The message content"
+    )
+
+
 class LocationChatRequest(BaseModel):
     """
     Request model for location-specific chat endpoint.
@@ -49,6 +69,7 @@ class LocationChatRequest(BaseModel):
         thread_id: Optional conversation thread ID for context persistence
         location_name: The specific location to focus retrieval on
         user_preferences: Optional user preference scores for personalized responses
+        conversation_history: Optional list of previous messages for context
     """
     message: str = Field(
         ...,
@@ -72,6 +93,10 @@ class LocationChatRequest(BaseModel):
         None,
         description="User preference scores for personalized responses"
     )
+    conversation_history: Optional[List[ConversationMessage]] = Field(
+        None,
+        description="Previous messages in the conversation for context"
+    )
 
     class Config:
         json_schema_extra = {
@@ -84,7 +109,11 @@ class LocationChatRequest(BaseModel):
                     "adventure": 0.5,
                     "nature": 0.6,
                     "relaxation": 0.3
-                }
+                },
+                "conversation_history": [
+                    {"role": "user", "content": "Tell me about Sigiriya"},
+                    {"role": "assistant", "content": "Sigiriya is an ancient rock fortress..."}
+                ]
             }
         }
 
@@ -124,6 +153,134 @@ class PlanRequest(BaseModel):
         False,
         description="Whether to avoid alcohol-related activities"
     )
+
+
+class SelectedLocationInput(BaseModel):
+    """
+    Input model for a selected location in tour plan generation.
+    """
+    name: str = Field(
+        ...,
+        description="Location name",
+        examples=["Sigiriya Rock Fortress"]
+    )
+    latitude: float = Field(
+        ...,
+        description="Latitude coordinate"
+    )
+    longitude: float = Field(
+        ...,
+        description="Longitude coordinate"
+    )
+    image_url: Optional[str] = Field(
+        None,
+        description="Location image URL"
+    )
+    distance_km: Optional[float] = Field(
+        None,
+        description="Distance from user's location in km"
+    )
+
+
+class TourPlanGenerateRequest(BaseModel):
+    """
+    Request model for tour plan generation endpoint.
+
+    This endpoint generates a comprehensive multi-day tour plan
+    using the agentic RAG workflow with constraint optimization.
+
+    Attributes:
+        selected_locations: List of locations to include in the plan
+        start_date: Trip start date (ISO format)
+        end_date: Trip end date (ISO format)
+        thread_id: Optional session ID for conversation continuity
+        preferences: Optional user preferences
+        message: Optional user message for plan refinement
+    """
+    selected_locations: List[SelectedLocationInput] = Field(
+        ...,
+        min_length=1,
+        description="List of locations to include in the tour plan"
+    )
+    start_date: str = Field(
+        ...,
+        description="Trip start date in ISO format (YYYY-MM-DD)",
+        examples=["2026-01-05"]
+    )
+    end_date: str = Field(
+        ...,
+        description="Trip end date in ISO format (YYYY-MM-DD)",
+        examples=["2026-01-07"]
+    )
+    
+    @field_validator('start_date', 'end_date')
+    @classmethod
+    def validate_date_format(cls, v: str, info) -> str:
+        """Validate that dates are in YYYY-MM-DD format."""
+        # If it's already in correct format, return it
+        date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+        if re.match(date_pattern, v):
+            # Validate it's a real date
+            try:
+                dt.strptime(v, '%Y-%m-%d')
+                return v
+            except ValueError:
+                raise ValueError(f'{info.field_name} contains invalid date values. Must be a valid date in YYYY-MM-DD format.')
+        
+        # Try to parse ISO datetime format and extract date
+        try:
+            # Handle ISO datetime format like "2026-01-05T00:00:00.000Z"
+            parsed = dt.fromisoformat(v.replace('Z', '+00:00'))
+            return parsed.strftime('%Y-%m-%d')
+        except (ValueError, AttributeError):
+            pass
+        
+        # Try parsing with datetime
+        try:
+            parsed = dt.strptime(v[:10], '%Y-%m-%d')
+            return parsed.strftime('%Y-%m-%d')
+        except (ValueError, IndexError):
+            pass
+        
+        raise ValueError(f'{info.field_name} must be in YYYY-MM-DD format (e.g., 2026-01-05). Received: {v}')
+    
+    thread_id: Optional[str] = Field(
+        None,
+        description="Session ID for conversation continuity"
+    )
+    preferences: Optional[List[str]] = Field(
+        None,
+        description="User preferences",
+        examples=[["photography", "nature", "adventure"]]
+    )
+    message: Optional[str] = Field(
+        None,
+        description="Optional user message for plan generation or refinement",
+        examples=["I prefer early morning activities"]
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "selected_locations": [
+                    {
+                        "name": "Sigiriya Rock Fortress",
+                        "latitude": 7.9570,
+                        "longitude": 80.7603,
+                        "distance_km": 15.5
+                    },
+                    {
+                        "name": "Dambulla Cave Temple",
+                        "latitude": 7.8568,
+                        "longitude": 80.6496,
+                        "distance_km": 8.2
+                    }
+                ],
+                "start_date": "2026-01-05",
+                "end_date": "2026-01-06",
+                "preferences": ["photography", "history"]
+            }
+        }
 
 
 class CrowdPredictionRequest(BaseModel):
@@ -497,6 +654,18 @@ class SimpleRecommendationRequest(BaseModel):
         description="Number of recommendations to return",
         examples=[5, 10]
     )
+    outdoor_only: Optional[bool] = Field(
+        default=None,
+        description="Filter by outdoor/indoor: True = outdoor only, False = indoor only, None = both",
+        examples=[True, False, None]
+    )
+    min_match_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum match score threshold (0.0 to 1.0)",
+        examples=[0.35, 0.5, 0.7]
+    )
 
     class Config:
         json_schema_extra = {
@@ -510,6 +679,8 @@ class SimpleRecommendationRequest(BaseModel):
                     "relaxation": 0.4
                 },
                 "max_distance_km": 50.0,
-                "top_k": 5
+                "top_k": 5,
+                "outdoor_only": None,
+                "min_match_score": 0.35
             }
         }
