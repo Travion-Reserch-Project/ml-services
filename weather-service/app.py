@@ -5,8 +5,11 @@ from typing import Optional, List
 import os
 import torch
 import logging
+from PIL import Image
+import numpy as np
 from dotenv import load_dotenv
 from utils.fitzpatrick import preprocess_image, load_model
+from utils.validator import validate_human_skin
 
 # -------------------------------------------------
 # Logging configuration
@@ -149,15 +152,18 @@ def root():
 # -------------------------------------------------
 @app.post("/api/skin/fitzpatrick_predict")
 async def predict(file: UploadFile = File(...)):
-    image = preprocess_image(file.file).to(device)
+    image_pil = Image.open(file.file).convert("RGB")
+    image_np = np.array(image_pil)
+
+    validate_human_skin(image_np)
+
+    image_tensor = preprocess_image(image_pil).to(device)
 
     with torch.no_grad():
-        outputs = fitzpatrick_model(image)
+        outputs = fitzpatrick_model(image_tensor)
         pred_class = outputs.argmax(dim=1).item() + 1
 
-    return {
-        "predicted_skin_type": pred_class
-    }
+    return {"predicted_skin_type": pred_class}
 
 
 # -------------------------------------------------

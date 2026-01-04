@@ -1,7 +1,6 @@
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import numpy as np
-from PIL import Image
 import torch
 import timm
 
@@ -14,8 +13,7 @@ transform = A.Compose([
     ToTensorV2()
 ])
 
-def preprocess_image(image_bytes):
-    image = Image.open(image_bytes).convert("RGB")
+def preprocess_image(image):
     image = np.array(image)
     image = transform(image=image)["image"]
     return image.unsqueeze(0)
