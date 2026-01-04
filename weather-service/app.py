@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import os
+import torch
 import logging
 from dotenv import load_dotenv
+from utils.fitzpatrick import preprocess_image, load_model
 
 # -------------------------------------------------
 # Logging configuration
@@ -23,6 +25,9 @@ app = FastAPI(
     description="UV & weather-based risk prediction service for tourists",
     version="1.0.0"
 )
+
+fitzpatrick_model = load_model()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load environment variables
 load_dotenv()
@@ -139,6 +144,21 @@ def root():
         }
     }
 
+# -------------------------------------------------
+# Fitzpatrick Skin Type Prediction Endpoint
+# -------------------------------------------------
+@app.post("/api/skin/fitzpatrick_predict")
+async def predict(file: UploadFile = File(...)):
+    image = preprocess_image(file.file).to(device)
+
+    with torch.no_grad():
+        outputs = fitzpatrick_model(image)
+        pred_class = outputs.argmax(dim=1).item() + 1
+
+    return {
+        "predicted_skin_type": pred_class
+    }
+
 
 # -------------------------------------------------
 # Predict single instance
@@ -224,5 +244,5 @@ def health_check():
 # uvicorn app:app --reload --port 8004
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8004))
+    port = int(os.getenv("PORT", 8002))
     uvicorn.run(app, host="0.0.0.0", port=port)
