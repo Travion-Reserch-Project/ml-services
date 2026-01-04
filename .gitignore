@@ -20,6 +20,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+weather-service/models/*
 
 # Virtual Environment
 venv/
