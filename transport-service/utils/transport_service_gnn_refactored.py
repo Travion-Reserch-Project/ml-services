@@ -800,6 +800,60 @@ class TransportServiceGNNRefactored:
                         }
                     )
 
+            # Prefer bus for long distances (>60 km) when not in quiet night hours
+            hour = temporal_features.get("hour")
+            is_night_quiet = hour is not None and (hour >= 22 or hour < 4)
+            if not is_night_quiet and distance_km > 60:
+                filtered = [r for r in recommendations if r.get("mode") not in {"ride_hail", "ridehailing"}]
+                if filtered:
+                    recommendations = filtered
+                else:
+                    # Add a synthetic bus option if none remain
+                    bus_reliability = get_reliability_score("bus", temporal_features.get("time_period"), temporal_features.get("day_type"))
+                    bus_crowding = get_crowding_score("bus", temporal_features.get("time_period"), temporal_features.get("day_type"))
+                    recommendations.append(
+                        {
+                            "service_id": "GNN_PREDICTED_BUS_LONG",
+                            "mode": "bus",
+                            "operator": "SLTB (Predicted)",
+                            "duration_min": int((distance_km / 50) * 60),
+                            "fare_lkr": float(distance_km * 6.0),
+                            "distance_km": float(distance_km),
+                            "reliability": float(bus_reliability),
+                            "crowding": float(bus_crowding),
+                            "is_recommended": True,
+                            "reliability_stars": "⭐" * int(round(bus_reliability * 5)),
+                            "is_predicted": True,
+                        }
+                    )
+
+            # Filter out trains and buses during night hours (22:00 - 04:00)
+            if is_night_quiet:
+                recommendations = [
+                    r for r in recommendations if r.get("mode") not in {"train", "bus"}
+                ]
+
+                # Ensure at least one ride-hailing option is present
+                has_ride_hail = any(r.get("mode") in {"ride_hail", "ridehailing"} for r in recommendations)
+                if not has_ride_hail:
+                    ride_reliability = get_reliability_score("ride_hail", temporal_features.get("time_period"), temporal_features.get("day_type"))
+                    ride_crowding = get_crowding_score("ride_hail", temporal_features.get("time_period"), temporal_features.get("day_type"))
+                    recommendations.append(
+                        {
+                            "service_id": "GNN_PREDICTED_RIDE_HAIL",
+                            "mode": "ride_hail",
+                            "operator": "Uber/PickMe (Predicted)",
+                            "duration_min": int((distance_km / 50) * 60),
+                            "fare_lkr": float(distance_km * 120.0),
+                            "distance_km": float(distance_km),
+                            "reliability": float(ride_reliability),
+                            "crowding": float(ride_crowding),
+                            "is_recommended": True,
+                            "reliability_stars": "⭐" * int(round(ride_reliability * 5)),
+                            "is_predicted": True,
+                        }
+                    )
+
             # Sort by reliability
             recommendations.sort(
                 key=lambda x: (x["is_recommended"], x["reliability"]), reverse=True
