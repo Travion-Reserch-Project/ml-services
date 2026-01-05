@@ -11,8 +11,6 @@ Uses HolidayDetector API instead of calendar.csv
 
 Environment Variables:
 - PREDICTION_MODE: 'hybrid' (default) or 'gnn_only'
-  * hybrid: Use CSV data when available, GNN predictions for missing routes
-  * gnn_only: Always use GNN predictions, ignore CSV data
 - DATA_SOURCE: 'csv' (default) or 'mongodb'
 - HOLIDAY_API_KEY: Optional HolidayAPI key for fetching holidays
 """
