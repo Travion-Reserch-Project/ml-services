@@ -36,6 +36,11 @@ class Settings(BaseSettings):
         API_V1_PREFIX: API version prefix
         HOST: Server host
         PORT: Server port
+        
+        # LangSmith Monitoring
+        LANGCHAIN_TRACING_V2: Enable LangSmith tracing
+        LANGCHAIN_API_KEY: LangSmith API key
+        LANGCHAIN_PROJECT: Project name in LangSmith
     """
 
     # Application
@@ -91,6 +96,21 @@ class Settings(BaseSettings):
     RETRIEVAL_TOP_K: int = 5
     RELEVANCE_THRESHOLD: float = 0.7
     MAX_WEB_SEARCH_RESULTS: int = 5
+
+    # LangSmith Monitoring Configuration
+    LANGCHAIN_TRACING_V2: bool = True
+    LANGCHAIN_API_KEY: Optional[str] = None
+    LANGCHAIN_PROJECT: str = "travion-ai-engine"
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+
+    # Reliability Configuration
+    LLM_TIMEOUT_SECONDS: int = 30
+    LLM_MAX_RETRIES: int = 3
+    LLM_RETRY_DELAY: float = 1.0
+    CHROMADB_TIMEOUT_SECONDS: int = 10
+
+    # CORS Configuration (update for production)
+    CORS_ORIGINS: str = "*"  # Comma-separated list or * for all
 
     class Config:
         env_file = ".env"

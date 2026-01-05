@@ -292,24 +292,25 @@ def create_initial_state(
     # Add the current user query
     messages.append({"role": "user", "content": user_query})
     
-    return GraphState(
-        messages=messages,
-        user_query=user_query,
-        intent=None,
-        retrieved_documents=[],
-        document_relevance=None,
-        needs_web_search=False,
-        web_search_results=[],
-        shadow_monitor_logs=[],
-        constraint_violations=[],
-        target_date=None,
-        target_location=target_location,
-        target_coordinates=None,
-        generated_response=None,
-        final_response=None,
-        itinerary=None,
-        tour_plan_context=tour_plan_context,
-        tour_plan_metadata=None,
-        reasoning_loops=0,
-        error=None
-    )
+    # Return as a dict (TypedDict is just for type hints, instantiate as regular dict)
+    return {
+        "messages": messages,
+        "user_query": user_query,
+        "intent": None,
+        "retrieved_documents": [],
+        "document_relevance": None,
+        "needs_web_search": False,
+        "web_search_results": [],
+        "shadow_monitor_logs": [],
+        "constraint_violations": [],
+        "target_date": None,
+        "target_location": target_location,
+        "target_coordinates": None,
+        "generated_response": None,
+        "final_response": None,
+        "itinerary": None,
+        "tour_plan_context": tour_plan_context,
+        "tour_plan_metadata": None,
+        "reasoning_loops": 0,
+        "error": None,
+    }

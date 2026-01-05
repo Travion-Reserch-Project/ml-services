@@ -21,6 +21,17 @@ import re
 from datetime import datetime
 from typing import Dict, Optional
 
+# Tracing
+try:
+    from ...utils.tracing import trace_node
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
 from ..state import GraphState, ShadowMonitorLog
 
 logger = logging.getLogger(__name__)

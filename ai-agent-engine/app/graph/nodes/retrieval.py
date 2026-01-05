@@ -21,6 +21,19 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 
+# Tracing
+try:
+    from ...utils.tracing import trace_node, trace_retrieval
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    def trace_retrieval(*args, **kwargs):
+        return trace_node(*args, **kwargs)
+
 from ..state import GraphState, RetrievedDocument
 
 logger = logging.getLogger(__name__)

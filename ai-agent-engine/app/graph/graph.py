@@ -50,6 +50,23 @@ import logging
 import uuid
 from typing import Optional, Dict, Any, List
 
+# Tracing imports
+try:
+    from ..utils.tracing import (
+        trace_node,
+        init_langsmith,
+        create_run_config,
+        get_tracing_callback,
+        log_rag_metrics,
+    )
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
 # LangGraph imports
 try:
     from langgraph.graph import StateGraph, END
@@ -181,6 +198,13 @@ class TravionAgentGraph:
 
         # Build graph
         if LANGGRAPH_AVAILABLE:
+            if self.llm is None:
+                logger.error("No LLM available! Please configure at least one LLM provider.")
+                logger.error("Options: Set GOOGLE_API_KEY for Gemini, OPENAI_API_KEY for OpenAI, or ensure Ollama is running.")
+                raise RuntimeError(
+                    "LLM initialization failed. Please configure GOOGLE_API_KEY, OPENAI_API_KEY, "
+                    "or ensure Ollama is running at the configured URL."
+                )
             self._build_graph()
         else:
             logger.error("LangGraph not available. Install with: pip install langgraph")
@@ -416,16 +440,38 @@ class TravionAgentGraph:
             tour_plan_context=tour_plan_context
         )
 
-        # Configure thread (always required when using checkpointer)
-        config = {
-            "configurable": {
-                "thread_id": thread_id or str(uuid.uuid4())
+        # Configure thread with tracing metadata
+        if TRACING_AVAILABLE:
+            config = create_run_config(
+                thread_id=thread_id,
+                user_query=query,
+                target_location=target_location,
+                tags=["chat", target_location or "general"],
+                metadata={
+                    "has_tour_plan_context": bool(tour_plan_context),
+                    "conversation_length": len(conversation_history) if conversation_history else 0,
+                }
+            )
+        else:
+            config = {
+                "configurable": {
+                    "thread_id": thread_id or str(uuid.uuid4())
+                }
             }
-        }
 
         try:
             # Execute the graph
             final_state = await self.graph.ainvoke(initial_state, config)
+
+            # Log RAG metrics for monitoring
+            if TRACING_AVAILABLE:
+                log_rag_metrics(
+                    query=query,
+                    documents_retrieved=len(final_state.get("retrieved_documents", [])),
+                    relevance_score=final_state.get("document_relevance", {}).get("score", 0.0) if isinstance(final_state.get("document_relevance"), dict) else 0.0,
+                    response_length=len(final_state.get("final_response", "") or ""),
+                    reasoning_loops=final_state.get("reasoning_loops", 0)
+                )
 
             return {
                 "query": query,

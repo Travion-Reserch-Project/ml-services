@@ -21,7 +21,26 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Retry logic for reliability
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    TENACITY_AVAILABLE = True
+except ImportError:
+    TENACITY_AVAILABLE = False
+
+# Tracing
+try:
+    from ...utils.tracing import trace_node
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
 from ..state import GraphState, IntentType, ShadowMonitorLog
+from ...config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +215,11 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
     query = state["user_query"]
     intent = state.get("intent", IntentType.TOURISM_QUERY)
     target_location = state.get("target_location")
+    correction_instructions = state.get("_correction_instructions")
 
     logger.info(f"Generator processing intent: {intent.value}, target_location: {target_location}")
+    if correction_instructions:
+        logger.info(f"Generator applying corrections: {correction_instructions[:100]}...")
 
     # Build context from all sources
     context = build_context_string(state)
@@ -209,12 +231,17 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
     if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC]:
         # If we have a target location, explicitly mention it in the context
         location_context = f"\nYou are answering questions about: {target_location}\n" if target_location else ""
+        
+        # Include correction instructions if this is a regeneration
+        correction_context = ""
+        if correction_instructions:
+            correction_context = f"\n\n=== IMPORTANT CORRECTIONS NEEDED ===\n{correction_instructions}\n"
+        
         user_message = f"""Context Information:
-{location_context}{context}
-
+{location_context}{context}{correction_context}
 User Question: {query}
 
-Please provide a helpful response based on the context above."""
+Please provide a helpful response based on the context above.{' Address the correction issues mentioned.' if correction_instructions else ''}"""
     else:
         user_message = query
 
@@ -238,13 +265,27 @@ Please provide a helpful response based on the context above."""
     # Add current user message (with context if applicable)
     conversation_messages.append({"role": "user", "content": user_message})
 
-    # Generate response
+    # Generate response with retry logic for reliability
     if llm:
-        try:
-            response = await llm.ainvoke(conversation_messages)
-            generated_text = response.content
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
+        max_retries = getattr(settings, 'LLM_MAX_RETRIES', 3)
+        retry_delay = getattr(settings, 'LLM_RETRY_DELAY', 1.0)
+        generated_text = None
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = await llm.ainvoke(conversation_messages)
+                generated_text = response.content
+                break  # Success, exit retry loop
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM generation attempt {attempt + 1}/{max_retries} failed: {e}")
+                if attempt < max_retries - 1:
+                    import asyncio
+                    await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+        
+        if generated_text is None:
+            logger.error(f"LLM generation failed after {max_retries} attempts: {last_error}")
             generated_text = generate_fallback_response(state)
     else:
         generated_text = generate_fallback_response(state)

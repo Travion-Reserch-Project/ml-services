@@ -42,6 +42,19 @@ from enum import Enum
 from pathlib import Path
 from pydantic import BaseModel, Field
 
+# Tracing
+try:
+    from ...utils.tracing import trace_node, trace_tool
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    def trace_tool(*args, **kwargs):
+        return trace_node(*args, **kwargs)
+
 from ..state import (
     GraphState, ShadowMonitorLog, ConstraintViolation, ItinerarySlot
 )

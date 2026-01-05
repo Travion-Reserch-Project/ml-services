@@ -84,6 +84,17 @@ from .physics import get_golden_hour_engine
 from .core.recommender import get_recommender
 from .agents.ranker import get_ranker_agent
 
+# Import tracing utilities
+try:
+    from .utils.tracing import init_langsmith, log_rag_metrics
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def init_langsmith():
+        return False
+    def log_rag_metrics(*args, **kwargs):
+        pass
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -98,6 +109,7 @@ async def lifespan(app: FastAPI):
     Application lifespan manager for startup/shutdown events.
 
     Startup:
+        - Initialize LangSmith tracing
         - Initialize LangGraph agent
         - Connect to ChromaDB
         - Load ML models
@@ -107,6 +119,21 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("Starting Travion AI Engine...")
+
+    # Initialize LangSmith tracing first
+    if TRACING_AVAILABLE and settings.LANGCHAIN_API_KEY:
+        tracing_enabled = init_langsmith(
+            api_key=settings.LANGCHAIN_API_KEY,
+            project_name=settings.LANGCHAIN_PROJECT,
+            endpoint=settings.LANGCHAIN_ENDPOINT
+        )
+        if tracing_enabled:
+            logger.info(f"✅ LangSmith tracing enabled for project: {settings.LANGCHAIN_PROJECT}")
+        else:
+            logger.warning("⚠️ LangSmith tracing could not be initialized")
+    else:
+        if not settings.LANGCHAIN_API_KEY:
+            logger.info("ℹ️ LangSmith tracing disabled (no LANGCHAIN_API_KEY configured)")
 
     # Initialize agent (preloads models)
     try:
@@ -169,10 +196,11 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Add CORS middleware
+# Add CORS middleware with configurable origins
+cors_origins = settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=cors_origins,  # Configurable via CORS_ORIGINS env var
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
