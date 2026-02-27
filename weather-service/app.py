@@ -1,3 +1,6 @@
+#Predict Fitzpatrick skin type from a face image
+#Predict UV / weather-based risk using an ML model
+#Expose these capabilities via REST APIs for your mobile app
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -29,6 +32,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+#Loads CNN model once
 fitzpatrick_model = load_model()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -54,7 +58,7 @@ models_downloaded = False
 
 
 # -------------------------------------------------
-# Ensure models are downloaded
+# Ensure models are downloaded, Downloads ML models
 # -------------------------------------------------
 def ensure_models_downloaded():
     global models_downloaded
@@ -82,7 +86,7 @@ def ensure_models_downloaded():
 
 
 # -------------------------------------------------
-# Lazy-load inference service
+# Lazy-load inference service, Loads your UV risk ML model
 # -------------------------------------------------
 def get_weather_service():
     global weather_service
@@ -104,7 +108,7 @@ def get_weather_service():
 
 
 # -------------------------------------------------
-# Request schemas
+# Request schemas -> Input validation, Prevents invalid data,Documents expected inputs, Protects ML model from bad values
 # -------------------------------------------------
 class WeatherFeatures(BaseModel):
     Skin_Type: int = Field(..., alias="Skin Type", ge=1, le=6)
@@ -132,7 +136,7 @@ class BatchPredictRequest(BaseModel):
 
 
 # -------------------------------------------------
-# Root endpoint
+# Root endpoint, Confirms service is running
 # -------------------------------------------------
 @app.get("/")
 def root():
@@ -149,6 +153,7 @@ def root():
 
 # -------------------------------------------------
 # Fitzpatrick Skin Type Prediction Endpoint
+# User uploads face image, Image is validated (human skin check), Image is preprocessed, CNN predicts skin type (1–6), Result returned to frontend
 # -------------------------------------------------
 @app.post("/api/skin/fitzpatrick_predict")
 async def predict(file: UploadFile = File(...)):
@@ -167,7 +172,7 @@ async def predict(file: UploadFile = File(...)):
 
 
 # -------------------------------------------------
-# Predict single instance
+# Predict single instance -> Accepts weather + personal features, Runs ML model, Returns risk level
 # -------------------------------------------------
 @app.post("/api/weather/predict")
 def predict_weather_risk(request: PredictRequest):
@@ -192,7 +197,7 @@ def predict_weather_risk(request: PredictRequest):
 
 
 # -------------------------------------------------
-# Batch prediction
+# Batch prediction -> Dataset testing, Research evaluation
 # -------------------------------------------------
 @app.post("/api/weather/batch_predict")
 def batch_predict_weather_risk(request: BatchPredictRequest):
@@ -218,7 +223,7 @@ def batch_predict_weather_risk(request: BatchPredictRequest):
 
 
 # -------------------------------------------------
-# HEALTH CHECK (EXACT FORMAT YOU REQUESTED)
+# HEALTH CHECK (EXACT FORMAT YOU REQUESTED) -> this confirms; Model loaded, Scaler loaded, Files exist
 # -------------------------------------------------
 @app.get("/api/weather/health")
 def health_check():
