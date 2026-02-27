@@ -52,14 +52,14 @@ def publish_model(
         print("   MLFLOW_TRACKING_URI=https://dagshub.com/<user>/<repo>.mlflow")
         sys.exit(1)
 
-    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri) #Tells MLflow where to store the model
     print(f"📊 MLflow Tracking URI: {tracking_uri}")
 
     # ------------------------------
     # Set credentials
     # ------------------------------
-    username = os.getenv("MLFLOW_TRACKING_USERNAME")
-    password = os.getenv("MLFLOW_TRACKING_PASSWORD")
+    username = os.getenv("MLFLOW_TRACKING_USERNAME") #Username for DagsHub
+    password = os.getenv("MLFLOW_TRACKING_PASSWORD") #Password or personal access token for DagsHub
 
     if username and password:
         os.environ["MLFLOW_TRACKING_USERNAME"] = username
@@ -79,9 +79,9 @@ def publish_model(
             sys.exit(1)
 
     print("📦 Loading artifacts...")
-    model = joblib.load(model_path)
-    feature_cols = joblib.load(features_path)
-    decode_map = joblib.load(decode_map_path)
+    model = joblib.load(model_path) #Load the trained model
+    feature_cols = joblib.load(features_path) #Ensures correct input order
+    decode_map = joblib.load(decode_map_path) #Mapping of risk classes
 
     print("✓ Model and metadata loaded")
 
