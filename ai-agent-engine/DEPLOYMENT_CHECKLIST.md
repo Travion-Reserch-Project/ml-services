@@ -19,6 +19,7 @@ cat .env | grep -E "API_KEY|LANGCHAIN"
 ```
 
 **Expected API Keys:**
+
 - ✅ `OPENWEATHER_API_KEY=<your-openweather-api-key>`
 - ✅ `NEWS_API_KEY=<your-news-api-key>`
 - ✅ `LANGCHAIN_API_KEY=<your-langchain-api-key>`
@@ -27,6 +28,7 @@ cat .env | grep -E "API_KEY|LANGCHAIN"
 - ✅ `TAVILY_API_KEY=tvly-dev-...` (web search)
 
 **Action Items:**
+
 - [ ] Verify OpenWeatherMap API key is valid: https://openweathermap.org/api
 - [ ] Verify NewsAPI key is valid (optional, GDELT is free fallback)
 - [ ] Verify LangSmith API key is valid: https://smith.langchain.com
@@ -67,11 +69,13 @@ LANGCHAIN_PROJECT=Travion           # Your project name in LangSmith
 ### 3. Monitoring Setup
 
 **LangSmith Dashboard:**
+
 - [ ] Open https://smith.langchain.com
 - [ ] Verify project "Travion" exists
 - [ ] Confirm you can see recent traces
 
 **Health Monitoring:**
+
 - [ ] Test health endpoint: `GET /api/v1/health`
 - [ ] Set up automated health checks (every 30s)
 - [ ] Configure alerts for `status: "unhealthy"` or `status: "degraded"`
@@ -180,6 +184,7 @@ curl -X POST http://localhost:8000/api/v1/tour-plan/generate \
 ```
 
 **Expected Response Should Include:**
+
 - ✅ Poya day warnings (May 11 is Vesak)
 - ✅ Crowd predictions for each location
 - ✅ Golden hour recommendations with timing
@@ -203,30 +208,35 @@ curl -X POST http://localhost:8000/api/v1/tour-plan/generate \
 ### 4. Test Accuracy (Critical Functions)
 
 **Poya Day Detection:**
+
 ```bash
 # Vesak Poya 2026: May 11
 # Should detect alcohol restrictions and high crowds at religious sites
 ```
 
 **Holiday Closure Detection:**
+
 ```bash
 # Sinhala New Year: April 13-14, 2026
 # Should show critical shutdown warnings
 ```
 
 **Weather Validation:**
+
 ```bash
 # Should provide rain probability and wind speeds
 # Should warn about unsuitable conditions for beach/outdoor activities
 ```
 
 **Crowd Prediction:**
+
 ```bash
 # Should show crowd levels (LOW, MODERATE, HIGH, EXTREME)
 # Should suggest optimal visit times
 ```
 
 **Golden Hour Timing:**
+
 ```bash
 # Should provide sunrise/sunset times
 # Should recommend best photography times
@@ -256,6 +266,7 @@ watch -n 30 'curl -s http://localhost:8000/api/v1/health | jq ".status"'
 ### 3. Error Handling Verification
 
 **Test Circuit Breaker (Optional):**
+
 ```bash
 # Temporarily set invalid weather API key
 # Start service
@@ -269,6 +280,7 @@ watch -n 30 'curl -s http://localhost:8000/api/v1/health | jq ".status"'
 ### 4. Performance Metrics
 
 **Expected Performance:**
+
 - API response time: <3s for tour plan generation
 - Node execution: <500ms per node average
 - LLM calls: <2s per generation
@@ -276,6 +288,7 @@ watch -n 30 'curl -s http://localhost:8000/api/v1/health | jq ".status"'
 - News API: <2s per request
 
 **Monitor in Logs:**
+
 ```
 ✅ NODE SUCCESS: router | Duration: 145.23ms
 ✅ NODE SUCCESS: retrieve | Duration: 312.45ms
@@ -289,12 +302,14 @@ watch -n 30 'curl -s http://localhost:8000/api/v1/health | jq ".status"'
 ### 1. Health Check Automation
 
 **Set up external monitoring:**
+
 - Tool: UptimeRobot, Pingdom, or custom script
 - Endpoint: `GET /api/v1/health`
 - Frequency: Every 30 seconds
 - Alert on: `status != "healthy"`
 
 **Example monitoring script:**
+
 ```bash
 #!/bin/bash
 # health_monitor.sh
@@ -313,12 +328,14 @@ fi
 ### 2. Log Monitoring
 
 **Key log patterns to monitor:**
+
 - `❌` - Errors (should be rare)
 - `⚠️` - Warnings (degraded services)
 - `🔴 Circuit breaker OPENED` - Service failures
 - `Shadow Monitor running in DEGRADED mode` - Missing API configuration
 
 **Set up log aggregation (optional):**
+
 - ELK Stack (Elasticsearch, Logstash, Kibana)
 - Datadog, New Relic, or Splunk
 - CloudWatch Logs (if on AWS)
@@ -336,6 +353,7 @@ fi
 If issues occur after deployment:
 
 ### 1. Check Health Status
+
 ```bash
 curl http://localhost:8000/api/v1/health | jq .
 
@@ -346,12 +364,14 @@ curl http://localhost:8000/api/v1/health | jq .
 ```
 
 ### 2. Check Service Logs
+
 ```bash
 # Look for ERROR or CRITICAL log levels
 tail -f logs/app.log | grep -E "ERROR|CRITICAL|❌"
 ```
 
 ### 3. Check LangSmith Traces
+
 - Open https://smith.langchain.com
 - Filter by "failed" traces
 - Identify failing nodes
@@ -359,6 +379,7 @@ tail -f logs/app.log | grep -E "ERROR|CRITICAL|❌"
 ### 4. Temporary Fixes
 
 **If weather API failing:**
+
 ```bash
 # Set REQUIRE_WEATHER_API=false in .env
 # Restart service
@@ -366,11 +387,13 @@ tail -f logs/app.log | grep -E "ERROR|CRITICAL|❌"
 ```
 
 **If news API failing:**
+
 ```bash
 # System automatically falls back to GDELT (no action needed)
 ```
 
 **If critical service failing:**
+
 ```bash
 # Check logs for specific error
 # Verify API keys are valid
@@ -379,6 +402,7 @@ tail -f logs/app.log | grep -E "ERROR|CRITICAL|❌"
 ```
 
 ### 5. Revert Configuration
+
 ```bash
 # If all else fails, revert to previous .env
 cp .env.backup .env
@@ -393,6 +417,7 @@ python -m uvicorn app.main:app --reload
 ### 1. LLM Timeout Adjustment
 
 If seeing frequent timeouts:
+
 ```env
 # In .env
 LLM_TIMEOUT_SECONDS=60  # Increase from default 30
@@ -402,6 +427,7 @@ LLM_MAX_RETRIES=3
 ### 2. Circuit Breaker Tuning
 
 If seeing false positives (circuit opening unnecessarily):
+
 ```env
 CIRCUIT_BREAKER_THRESHOLD=10  # Increase from default 5
 CIRCUIT_BREAKER_TIMEOUT=120   # Increase from default 60
@@ -410,6 +436,7 @@ CIRCUIT_BREAKER_TIMEOUT=120   # Increase from default 60
 ### 3. Horizontal Scaling
 
 For high traffic (>100 req/min):
+
 ```env
 # Switch to Redis session backend
 SESSION_BACKEND=redis
@@ -417,6 +444,7 @@ REDIS_URL=redis://localhost:6379/0
 ```
 
 Then run multiple instances:
+
 ```bash
 # Instance 1
 uvicorn app.main:app --port 8000
@@ -432,12 +460,14 @@ uvicorn app.main:app --port 8001
 ## Success Metrics
 
 ### Technical Metrics ✅
+
 - [x] Service availability: 99.9%
 - [x] API response time: <3s for tour plan generation
 - [x] LangSmith trace coverage: 100% of nodes
 - [x] Zero silent failures
 
 ### Accuracy Metrics ✅
+
 - [x] Poya day detection: 100%
 - [x] Weather validation: Working (when API configured)
 - [x] Constraint violation detection: 98%+
@@ -445,6 +475,7 @@ uvicorn app.main:app --port 8001
 - [x] Crowd prediction: 99.82% (existing model)
 
 ### Operational Metrics
+
 - Mean Time To Detect (MTTD): <1 minute
 - Mean Time To Recover (MTTR): <5 minutes
 - Error rate: <0.1%
@@ -457,16 +488,19 @@ uvicorn app.main:app --port 8001
 ### Common Issues
 
 **1. "Weather API UNAVAILABLE"**
+
 - Verify `OPENWEATHER_API_KEY` in `.env`
 - Test API key: `curl "https://api.openweathermap.org/data/2.5/weather?q=London&appid=YOUR_KEY"`
 - Set `REQUIRE_WEATHER_API=false` to continue without weather validation
 
 **2. "LangSmith tracing FAILED to initialize"**
+
 - Verify `LANGCHAIN_API_KEY` in `.env`
 - Check https://smith.langchain.com is accessible
 - Verify API key is not expired
 
 **3. "Circuit breaker OPENED"**
+
 - Check which service: Look for `Circuit breaker OPENED for {service_name}`
 - Verify API key for that service
 - Check internet connectivity
@@ -474,6 +508,7 @@ uvicorn app.main:app --port 8001
 - Or restart service to reset circuit breakers
 
 **4. "LLM timeout"**
+
 - Increase `LLM_TIMEOUT_SECONDS` in `.env`
 - Check OpenAI/Gemini API status
 - Verify API key has sufficient quota
@@ -490,6 +525,7 @@ uvicorn app.main:app --port 8001
 ## Summary
 
 ✅ **Implemented Improvements:**
+
 1. Configuration fields added for Weather API, News API, circuit breakers
 2. Service health monitoring with circuit breaker pattern
 3. Explicit error handling in Shadow Monitor (no more silent failures)
@@ -498,6 +534,7 @@ uvicorn app.main:app --port 8001
 6. Enhanced LangSmith tracing with rich metadata and detailed logging
 
 ✅ **Key Benefits:**
+
 - No more silent failures - all errors are logged explicitly
 - Circuit breakers prevent cascading failures
 - Health monitoring provides full visibility
@@ -505,6 +542,7 @@ uvicorn app.main:app --port 8001
 - Industry-grade error handling and resilience
 
 ✅ **Production Ready:**
+
 - All critical services monitored
 - Graceful degradation when optional services unavailable
 - Comprehensive logging for debugging
@@ -513,6 +551,7 @@ uvicorn app.main:app --port 8001
 ---
 
 **Next Steps:**
+
 1. ✅ Verify all API keys are valid
 2. ✅ Start the service and check logs
 3. ✅ Test health endpoint
