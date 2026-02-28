@@ -263,21 +263,22 @@ def create_run_config(
 
 def trace_node(node_name: str, run_type: str = "chain") -> Callable[[F], F]:
     """
-    Decorator to trace a LangGraph node with LangSmith.
-    
+    Enhanced decorator to trace a LangGraph node with LangSmith.
+
     This decorator wraps async node functions to:
-    1. Create a LangSmith trace span
-    2. Log input state and output state
+    1. Create a LangSmith trace span with rich metadata
+    2. Log node start/success/failure with visual indicators
     3. Track execution time
-    4. Capture errors
-    
+    4. Capture errors with context
+    5. Add tags and metadata for better filtering in LangSmith UI
+
     Args:
         node_name: Name of the node (shown in LangSmith UI)
         run_type: Type of run ("chain", "llm", "tool", "retriever")
-        
+
     Returns:
-        Decorated function with tracing
-        
+        Decorated function with enhanced tracing
+
     Example:
         >>> @trace_node("router")
         >>> async def router_node(state: GraphState, llm=None) -> GraphState:
@@ -288,48 +289,101 @@ def trace_node(node_name: str, run_type: str = "chain") -> Callable[[F], F]:
         @wraps(func)
         async def wrapper(*args, **kwargs):
             metrics = TracingMetrics(node_name=node_name)
-            
-            # Log node entry
-            logger.debug(f"📍 Node '{node_name}' started")
-            
-            # Extract state info for metadata
+
+            # Extract state info for rich metadata
             state = args[0] if args else kwargs.get("state", {})
-            metrics.metadata = {
-                "user_query": state.get("user_query", "")[:50] if isinstance(state, dict) else "",
-                "intent": str(state.get("intent", "")) if isinstance(state, dict) else "",
+            query = state.get("user_query", "")[:100] if isinstance(state, dict) else ""
+            intent = str(state.get("intent", "")) if isinstance(state, dict) else ""
+
+            # Build rich metadata for LangSmith
+            rich_metadata = {
+                "query": query,
+                "intent": intent,
+                "timestamp": datetime.now().isoformat(),
+                "node_type": run_type
             }
-            
+
+            # Add location context if available
+            if isinstance(state, dict):
+                target_location = state.get("target_location")
+                if target_location:
+                    rich_metadata["target_location"] = target_location
+
+                # Add tour plan context if available
+                tour_plan_context = state.get("tour_plan_context", {})
+                if tour_plan_context:
+                    locations = tour_plan_context.get("selected_locations", [])
+                    if locations:
+                        rich_metadata["num_locations"] = len(locations)
+                        rich_metadata["location_names"] = [loc.get("name") for loc in locations[:3]]
+
+                    start_date = tour_plan_context.get("start_date")
+                    end_date = tour_plan_context.get("end_date")
+                    if start_date and end_date:
+                        rich_metadata["date_range"] = f"{start_date} to {end_date}"
+
+            metrics.metadata = rich_metadata
+
+            # Log node START with context
+            logger.info(f"▶️ NODE START: {node_name}")
+            if query:
+                logger.info(f"   Query: {query[:80]}...")
+            if intent:
+                logger.info(f"   Intent: {intent}")
+
             try:
-                # Execute the node function
+                # Execute the node function with enhanced LangSmith metadata
                 if LANGSMITH_AVAILABLE and _tracing_enabled and traceable:
-                    # Use LangSmith traceable decorator
-                    traced_func = traceable(name=node_name, run_type=run_type)(func)
+                    # Create tags for better filtering in LangSmith
+                    tags = [
+                        f"node:{node_name}",
+                        f"type:{run_type}",
+                        "travion-tour-plan"
+                    ]
+                    if intent:
+                        tags.append(f"intent:{intent}")
+
+                    # Use LangSmith traceable decorator with rich metadata
+                    traced_func = traceable(
+                        name=node_name,
+                        run_type=run_type,
+                        tags=tags,
+                        metadata=rich_metadata
+                    )(func)
                     result = await traced_func(*args, **kwargs)
                 else:
                     # Execute without tracing
                     result = await func(*args, **kwargs)
-                
+
                 metrics.complete(success=True)
-                
-                # Log node completion
-                logger.debug(
-                    f"✅ Node '{node_name}' completed in {metrics.latency_ms:.2f}ms"
+
+                # Log node SUCCESS
+                logger.info(
+                    f"✅ NODE SUCCESS: {node_name} | Duration: {metrics.latency_ms:.2f}ms"
                 )
-                
+
                 return result
-                
+
             except Exception as e:
                 metrics.complete(success=False, error_message=str(e))
-                
-                # Log error
+
+                # Log node FAILURE with details
                 logger.error(
-                    f"❌ Node '{node_name}' failed after {metrics.latency_ms:.2f}ms: {e}"
+                    f"❌ NODE FAILED: {node_name} | "
+                    f"Duration: {metrics.latency_ms:.2f}ms | "
+                    f"Error: {str(e)}"
                 )
-                
+
+                # Log additional context for debugging
+                if query:
+                    logger.error(f"   Failed Query: {query[:100]}")
+                if intent:
+                    logger.error(f"   Intent: {intent}")
+
                 raise
-        
+
         return wrapper  # type: ignore
-    
+
     return decorator
 
 

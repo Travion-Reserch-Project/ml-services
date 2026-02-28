@@ -20,6 +20,7 @@ Endpoints:
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
@@ -75,6 +76,7 @@ from .schemas.recommendation import (
     PreferenceConfidence,
 )
 from .graph import get_agent, invoke_agent
+from .graph.nodes.shadow_monitor import get_shadow_monitor
 from .tools import (
     get_crowdcast,
     get_event_sentinel,
@@ -83,6 +85,7 @@ from .tools import (
 from .physics import get_golden_hour_engine
 from .core.recommender import get_recommender
 from .agents.ranker import get_ranker_agent
+from .utils.service_health import get_health_monitor, ServiceType
 
 # Import tracing utilities
 try:
@@ -106,21 +109,34 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan manager for startup/shutdown events.
+    Application lifespan manager for startup/shutdown events with comprehensive health monitoring.
 
     Startup:
+        - Initialize service health monitoring
         - Initialize LangSmith tracing
         - Initialize LangGraph agent
-        - Connect to ChromaDB
-        - Load ML models
+        - Initialize Active Guardian services
+        - Report comprehensive service status
 
     Shutdown:
         - Cleanup resources
     """
     # Startup
-    logger.info("Starting Travion AI Engine...")
+    logger.info("=" * 80)
+    logger.info("🚀 Starting Travion AI Engine...")
+    logger.info("=" * 80)
 
-    # Initialize LangSmith tracing first
+    # Initialize health monitor FIRST
+    health_monitor = get_health_monitor()
+    for service_type in ServiceType:
+        health_monitor.register_service(
+            service_type,
+            circuit_breaker_threshold=settings.CIRCUIT_BREAKER_THRESHOLD,
+            circuit_breaker_timeout=settings.CIRCUIT_BREAKER_TIMEOUT
+        )
+    logger.info("🏥 Service health monitor initialized")
+
+    # Initialize LangSmith tracing
     if TRACING_AVAILABLE and settings.LANGCHAIN_API_KEY:
         tracing_enabled = init_langsmith(
             api_key=settings.LANGCHAIN_API_KEY,
@@ -128,44 +144,128 @@ async def lifespan(app: FastAPI):
             endpoint=settings.LANGCHAIN_ENDPOINT
         )
         if tracing_enabled:
-            logger.info(f"✅ LangSmith tracing enabled for project: {settings.LANGCHAIN_PROJECT}")
+            logger.info(f"✅ LangSmith tracing ENABLED")
+            logger.info(f"   Project: {settings.LANGCHAIN_PROJECT}")
+            logger.info(f"   Dashboard: https://smith.langchain.com/projects")
         else:
-            logger.warning("⚠️ LangSmith tracing could not be initialized")
+            logger.error("❌ LangSmith tracing FAILED to initialize")
+            logger.error("   Check LANGCHAIN_API_KEY configuration")
     else:
         if not settings.LANGCHAIN_API_KEY:
-            logger.info("ℹ️ LangSmith tracing disabled (no LANGCHAIN_API_KEY configured)")
+            logger.warning("⚠️ LangSmith disabled: LANGCHAIN_API_KEY not set")
+        else:
+            logger.warning("⚠️ LangSmith unavailable: Install with `pip install langsmith`")
 
-    # Initialize agent (preloads models)
+    # Initialize LLM and Agent
     try:
         agent = get_agent()
-        logger.info("Agent initialized successfully")
+        logger.info(f"✅ Agent initialized: {type(agent.llm).__name__ if agent.llm else 'No LLM'}")
+        health_monitor.report_success(ServiceType.LLM)
     except Exception as e:
-        logger.error(f"Failed to initialize agent: {e}")
+        logger.error(f"❌ Agent initialization FAILED: {e}")
+        health_monitor.report_failure(ServiceType.LLM, str(e))
+        if settings.STRICT_VALIDATION:
+            raise
 
-    # Initialize tools
+    # Initialize Active Guardian Services
+    logger.info("\n📡 Initializing Active Guardian Services...")
+
+    # Event Sentinel (Critical)
     try:
-        get_crowdcast()
-        get_event_sentinel()
-        get_golden_hour_agent()
-        logger.info("Tools initialized successfully")
+        sentinel = get_event_sentinel()
+        logger.info("✅ Event Sentinel: AVAILABLE")
+        health_monitor.report_success(ServiceType.EVENT_SENTINEL)
     except Exception as e:
-        logger.warning(f"Some tools failed to initialize: {e}")
+        logger.error(f"❌ Event Sentinel: FAILED - {e}")
+        health_monitor.report_failure(ServiceType.EVENT_SENTINEL, str(e))
+
+    # CrowdCast (Critical)
+    try:
+        crowdcast = get_crowdcast()
+        logger.info("✅ CrowdCast: AVAILABLE")
+        health_monitor.report_success(ServiceType.CROWDCAST)
+    except Exception as e:
+        logger.error(f"❌ CrowdCast: FAILED - {e}")
+        health_monitor.report_failure(ServiceType.CROWDCAST, str(e))
+
+    # Golden Hour (Critical)
+    try:
+        golden_hour = get_golden_hour_agent()
+        logger.info("✅ Golden Hour: AVAILABLE")
+        health_monitor.report_success(ServiceType.GOLDEN_HOUR)
+    except Exception as e:
+        logger.error(f"❌ Golden Hour: FAILED - {e}")
+        health_monitor.report_failure(ServiceType.GOLDEN_HOUR, str(e))
+
+    # Shadow Monitor and Active Guardian APIs
+    shadow_monitor = get_shadow_monitor()
+
+    # Weather API (Optional but important)
+    if shadow_monitor.weather_tool and shadow_monitor.weather_tool.is_configured():
+        logger.info("✅ Weather API: CONFIGURED")
+    else:
+        weather_health = health_monitor.get_health(ServiceType.WEATHER_API)
+        if weather_health.error_message:
+            logger.warning(f"⚠️ Weather API: NOT CONFIGURED")
+            logger.warning(f"   └─ {weather_health.error_message}")
+            logger.warning("   └─ Set OPENWEATHER_API_KEY in .env to enable weather validation")
+
+    # News API (Optional - GDELT fallback available)
+    if shadow_monitor.news_alert_tool:
+        if os.getenv("NEWS_API_KEY"):
+            logger.info("✅ News API: CONFIGURED (NewsAPI + GDELT)")
+        else:
+            logger.info("✅ News API: GDELT FALLBACK (no NewsAPI key - using free GDELT)")
+    else:
+        news_health = health_monitor.get_health(ServiceType.NEWS_API)
+        if news_health.error_message:
+            logger.warning(f"⚠️ News API: UNAVAILABLE")
+            logger.warning(f"   └─ {news_health.error_message}")
 
     # Initialize recommendation components
     try:
         recommender = get_recommender()
-        logger.info(f"Recommender initialized: {len(recommender.locations_df)} locations")
+        loc_count = len(recommender.locations_df) if recommender.locations_df is not None else 0
+        logger.info(f"✅ Recommender initialized: {loc_count} locations")
         ranker = get_ranker_agent()
-        logger.info("Ranker agent initialized")
+        logger.info("✅ Ranker agent initialized")
     except Exception as e:
-        logger.warning(f"Recommendation components failed to initialize: {e}")
+        logger.warning(f"⚠️ Recommendation components failed to initialize: {e}")
 
-    logger.info(f"Travion AI Engine ready on port {settings.PORT}")
+    # Print comprehensive service health summary
+    logger.info("\n📊 Service Health Summary:")
+    logger.info("─" * 80)
+    all_health = health_monitor.get_all_health()
+    for service_type, health in all_health.items():
+        status_icon = {
+            "healthy": "✅",
+            "degraded": "⚠️",
+            "unavailable": "❌",
+            "unknown": "❓"
+        }.get(health.status.value, "❓")
+
+        logger.info(f"   {status_icon} {service_type.value:<20} {health.status.value}")
+        if health.error_message and health.status.value != "healthy":
+            logger.info(f"      └─ {health.error_message}")
+
+    # Print summary statistics
+    summary = health_monitor.get_summary()
+    logger.info("\n" + "─" * 80)
+    logger.info(f"📈 Overall Status: {summary['overall_status'].upper()}")
+    logger.info(f"   Total Services: {summary['total_services']}")
+    logger.info(f"   Healthy: {summary['healthy_count']}")
+    logger.info(f"   Degraded: {summary['degraded_count']}")
+    logger.info(f"   Unavailable: {summary['unavailable_count']}")
+    logger.info("=" * 80)
+    logger.info(f"✅ Travion AI Engine ready on port {settings.PORT}")
+    logger.info(f"   Environment: {settings.ENVIRONMENT}")
+    logger.info(f"   Strict Validation: {settings.STRICT_VALIDATION}")
+    logger.info("=" * 80)
 
     yield
 
     # Shutdown
-    logger.info("Shutting down Travion AI Engine...")
+    logger.info("🛑 Shutting down Travion AI Engine...")
 
 
 # Create FastAPI application
@@ -1515,48 +1615,94 @@ async def get_current_sun_position(
     f"{settings.API_V1_PREFIX}/health",
     response_model=HealthResponse,
     tags=["System"],
-    summary="Health check",
-    description="Check the health of all system components."
+    summary="Comprehensive health check with service monitoring",
+    description="Check the health of all system components including Active Guardian services."
 )
 async def health_check():
-    """Health check endpoint."""
+    """
+    Enhanced health check endpoint with service health monitoring.
+
+    Returns detailed status for:
+    - LLM and graph compilation
+    - Active Guardian services (Weather API, News API, Event Sentinel, CrowdCast, Golden Hour)
+    - Circuit breaker status
+    - Recommendation components
+    """
     components = {}
+    health_monitor = get_health_monitor()
 
     # Check agent/LLM
     try:
         agent = get_agent()
         components["llm"] = "connected" if agent.llm else "not_configured"
         components["graph"] = "compiled" if agent.graph else "not_compiled"
+        if agent.llm:
+            health_monitor.report_success(ServiceType.LLM)
     except Exception as e:
         components["llm"] = f"error: {str(e)}"
         components["graph"] = "error"
+        health_monitor.report_failure(ServiceType.LLM, str(e))
 
-    # Check tools
+    # Check Active Guardian Services with health monitoring
+    shadow_monitor = get_shadow_monitor()
+
+    # CrowdCast (Critical)
     try:
-        get_crowdcast()
+        crowdcast = get_crowdcast()
         components["crowdcast"] = "available"
-    except Exception:
-        components["crowdcast"] = "error"
+        health_monitor.report_success(ServiceType.CROWDCAST)
+    except Exception as e:
+        components["crowdcast"] = f"error: {str(e)}"
+        health_monitor.report_failure(ServiceType.CROWDCAST, str(e))
 
+    # Event Sentinel (Critical)
     try:
-        get_event_sentinel()
+        event_sentinel = get_event_sentinel()
         components["event_sentinel"] = "available"
-    except Exception:
-        components["event_sentinel"] = "error"
+        health_monitor.report_success(ServiceType.EVENT_SENTINEL)
+    except Exception as e:
+        components["event_sentinel"] = f"error: {str(e)}"
+        health_monitor.report_failure(ServiceType.EVENT_SENTINEL, str(e))
 
+    # Golden Hour (Critical)
     try:
-        get_golden_hour_agent()
+        golden_hour = get_golden_hour_agent()
         components["golden_hour"] = "available"
-    except Exception:
-        components["golden_hour"] = "error"
+        health_monitor.report_success(ServiceType.GOLDEN_HOUR)
+    except Exception as e:
+        components["golden_hour"] = f"error: {str(e)}"
+        health_monitor.report_failure(ServiceType.GOLDEN_HOUR, str(e))
 
+    # Weather API (Optional but important) - Check via Shadow Monitor
+    weather_health = health_monitor.get_health(ServiceType.WEATHER_API)
+    if shadow_monitor.weather_tool and shadow_monitor.weather_tool.is_configured():
+        components["weather_api"] = "available"
+    elif weather_health.is_unavailable():
+        components["weather_api"] = f"unavailable: {weather_health.error_message}"
+    elif weather_health.is_degraded():
+        components["weather_api"] = f"degraded: {weather_health.error_message}"
+    else:
+        components["weather_api"] = "not_configured (set OPENWEATHER_API_KEY)"
+
+    # News API (Optional - GDELT fallback available)
+    news_health = health_monitor.get_health(ServiceType.NEWS_API)
+    if shadow_monitor.news_alert_tool:
+        components["news_api"] = "available"
+    elif news_health.is_unavailable():
+        components["news_api"] = f"unavailable: {news_health.error_message}"
+    elif news_health.is_degraded():
+        components["news_api"] = f"degraded: {news_health.error_message}"
+    else:
+        components["news_api"] = "not_configured (optional)"
+
+    # Physics Engine
     try:
         engine = get_golden_hour_engine()
         components["physics_engine"] = f"available ({engine.primary_method})"
     except Exception:
         components["physics_engine"] = "error"
 
-    # Check recommendation components
+    # Recommendation components
     try:
         recommender = get_recommender()
         loc_count = len(recommender.locations_df) if recommender.locations_df is not None else 0
@@ -1571,14 +1717,50 @@ async def health_check():
     except Exception:
         components["ranker_agent"] = "error"
 
-    # Overall status
-    errors = [v for v in components.values() if "error" in str(v).lower()]
-    status = "healthy" if not errors else "degraded"
+    # Determine overall status based on critical services
+    critical_services = [ServiceType.LLM, ServiceType.EVENT_SENTINEL, ServiceType.CROWDCAST, ServiceType.GOLDEN_HOUR]
+    critical_failures = [
+        svc.value for svc in critical_services
+        if health_monitor.get_health(svc).is_unavailable()
+    ]
+
+    degraded_services = [
+        svc.value for svc in [ServiceType.WEATHER_API, ServiceType.NEWS_API]
+        if health_monitor.get_health(svc).is_degraded() or health_monitor.get_health(svc).is_unavailable()
+    ]
+
+    # Overall status determination
+    if critical_failures:
+        status = "unhealthy"
+    elif degraded_services:
+        status = "degraded"
+    else:
+        # Also check component errors
+        errors = [v for v in components.values() if "error" in str(v).lower()]
+        status = "healthy" if not errors else "degraded"
+
+    # Build metadata with circuit breaker status
+    metadata = {
+        "critical_failures": critical_failures,
+        "degraded_services": degraded_services,
+        "strict_validation": settings.STRICT_VALIDATION,
+        "circuit_breakers": {
+            svc.value: {
+                "is_open": health_monitor.get_circuit_breaker(svc).is_open()
+                if health_monitor.get_circuit_breaker(svc) else False,
+                "failure_count": health_monitor.get_circuit_breaker(svc).failure_count
+                if health_monitor.get_circuit_breaker(svc) else 0
+            }
+            for svc in ServiceType
+        },
+        "service_summary": health_monitor.get_summary()
+    }
 
     return HealthResponse(
         status=status,
         version=settings.APP_VERSION,
-        components=components
+        components=components,
+        metadata=metadata
     )
 
 

@@ -63,6 +63,12 @@ from ...tools.crowdcast import get_crowdcast
 from ...tools.golden_hour import get_golden_hour_agent
 from ...tools.weather_api import WeatherTool, check_weather_for_trip, WeatherValidationResult
 from ...tools.news_alert_api import NewsAlertTool, check_alerts_for_trip, ItineraryAlertValidation
+from ...utils.service_health import (
+    get_health_monitor,
+    ServiceType,
+    ServiceStatus
+)
+from ...config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -347,27 +353,80 @@ class ShadowMonitor:
 
     @property
     def weather_tool(self) -> Optional[WeatherTool]:
-        """Lazy initialization of weather tool"""
+        """Lazy initialization of weather tool with health monitoring"""
+        health_monitor = get_health_monitor()
+
         if self._weather_tool is None:
             try:
                 self._weather_tool = WeatherTool()
                 if not self._weather_tool.is_configured():
-                    logger.warning("Weather API key not configured - weather validation disabled")
+                    error_msg = "OPENWEATHER_API_KEY not configured in .env"
+                    health_monitor.report_failure(
+                        ServiceType.WEATHER_API,
+                        error_msg,
+                        metadata={"action": "set_OPENWEATHER_API_KEY_in_env"}
+                    )
+                    logger.error(
+                        f"❌ Weather API UNAVAILABLE: {error_msg}. "
+                        "Shadow Monitor running in DEGRADED mode. "
+                        "Weather validation DISABLED."
+                    )
+                    if settings.REQUIRE_WEATHER_API:
+                        raise ValueError(
+                            "Weather API required but not configured. "
+                            "Set OPENWEATHER_API_KEY environment variable or set REQUIRE_WEATHER_API=false"
+                        )
                     return None
+                # Weather tool is configured
+                health_monitor.report_success(
+                    ServiceType.WEATHER_API,
+                    metadata={"configured": True}
+                )
+                logger.info("✅ Weather API configured and available")
             except Exception as e:
-                logger.warning(f"Failed to initialize WeatherTool: {e}")
+                error_msg = f"Failed to initialize WeatherTool: {str(e)}"
+                health_monitor.report_failure(
+                    ServiceType.WEATHER_API,
+                    error_msg,
+                    metadata={"exception_type": type(e).__name__}
+                )
+                logger.error(f"❌ {error_msg}")
+                if settings.STRICT_VALIDATION:
+                    raise
                 return None
+
         return self._weather_tool
 
     @property
     def news_alert_tool(self) -> Optional[NewsAlertTool]:
-        """Lazy initialization of news alert tool"""
+        """Lazy initialization of news alert tool with health monitoring"""
+        health_monitor = get_health_monitor()
+
         if self._news_alert_tool is None:
             try:
                 self._news_alert_tool = NewsAlertTool()
+                health_monitor.report_success(
+                    ServiceType.NEWS_API,
+                    metadata={"configured": True}
+                )
+                logger.info("✅ News Alert API configured and available")
             except Exception as e:
-                logger.warning(f"Failed to initialize NewsAlertTool: {e}")
+                error_msg = f"Failed to initialize NewsAlertTool: {str(e)}"
+                health_monitor.report_failure(
+                    ServiceType.NEWS_API,
+                    error_msg,
+                    metadata={"exception_type": type(e).__name__}
+                )
+                logger.error(f"❌ {error_msg}")
+                if settings.REQUIRE_NEWS_API:
+                    raise ValueError(
+                        "News API required but not configured. "
+                        "Set REQUIRE_NEWS_API=false to continue without news alerts"
+                    )
+                if settings.STRICT_VALIDATION:
+                    raise
                 return None
+
         return self._news_alert_tool
 
     def check_constraints(
@@ -809,7 +868,31 @@ class ShadowMonitor:
         Returns:
             ShadowMonitorResult with validation status and recommendations
         """
-        logger.info(f"Active Guardian: Validating trip plan for {trip_date.date()}")
+        logger.info(f"🔍 Active Guardian: Validating trip plan for {trip_date.date()}")
+
+        # Check service health BEFORE validation
+        health_monitor = get_health_monitor()
+        weather_health = health_monitor.get_health(ServiceType.WEATHER_API)
+        news_health = health_monitor.get_health(ServiceType.NEWS_API)
+
+        logger.info("📊 Service Status:")
+        logger.info(f"   Weather API: {weather_health.status.value}")
+        if weather_health.error_message:
+            logger.info(f"      └─ {weather_health.error_message}")
+        logger.info(f"   News API: {news_health.status.value}")
+        if news_health.error_message:
+            logger.info(f"      └─ {news_health.error_message}")
+
+        # Log warnings if services degraded
+        if weather_health.is_degraded() or weather_health.is_unavailable():
+            logger.warning(
+                f"⚠️ Weather validation DISABLED: {weather_health.error_message}"
+            )
+
+        if news_health.is_degraded() or news_health.is_unavailable():
+            logger.warning(
+                f"⚠️ News alert validation DISABLED: {news_health.error_message}"
+            )
 
         constraints: List[ValidationConstraint] = []
         recommendations: List[str] = []

@@ -26,7 +26,14 @@ import hashlib
 # CONFIGURATION
 # ============================================================================
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+# Import settings to get API key from .env file loaded by Pydantic
+try:
+    from ..config import settings
+    NEWS_API_KEY = settings.NEWS_API_KEY
+except ImportError:
+    # Fallback to direct environment variable if settings not available
+    NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+
 GDELT_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 SRI_LANKA_TZ = pytz.timezone("Asia/Colombo")

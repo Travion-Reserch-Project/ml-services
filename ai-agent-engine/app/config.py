@@ -6,6 +6,7 @@ enabling environment variable overrides for production deployment.
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 from functools import lru_cache
 
@@ -108,6 +109,42 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 3
     LLM_RETRY_DELAY: float = 1.0
     CHROMADB_TIMEOUT_SECONDS: int = 10
+
+    # Active Guardian API Keys (Weather & News Validation)
+    OPENWEATHER_API_KEY: Optional[str] = None
+    NEWS_API_KEY: Optional[str] = None
+
+    # Service Reliability Configuration
+    STRICT_VALIDATION: bool = Field(
+        default=True,
+        description="Raise errors on service failures instead of silent degradation"
+    )
+    REQUIRE_WEATHER_API: bool = Field(
+        default=False,
+        description="Block execution if weather API unavailable"
+    )
+    REQUIRE_NEWS_API: bool = Field(
+        default=False,
+        description="Block execution if news API unavailable"
+    )
+
+    # Circuit Breaker Configuration
+    CIRCUIT_BREAKER_THRESHOLD: int = Field(
+        default=5,
+        description="Number of failures before circuit opens"
+    )
+    CIRCUIT_BREAKER_TIMEOUT: int = Field(
+        default=60,
+        description="Seconds before attempting recovery after circuit opens"
+    )
+
+    # Production Session Management
+    SESSION_BACKEND: str = Field(
+        default="memory",
+        description="Session backend: memory, redis, or mongodb"
+    )
+    REDIS_URL: Optional[str] = None
+    MONGODB_SESSION_URL: Optional[str] = None
 
     # CORS Configuration (update for production)
     CORS_ORIGINS: str = "*"  # Comma-separated list or * for all

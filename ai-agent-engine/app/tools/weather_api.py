@@ -20,7 +20,14 @@ from functools import lru_cache
 # CONFIGURATION
 # ============================================================================
 
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+# Import settings to get API key from .env file loaded by Pydantic
+try:
+    from ..config import settings
+    OPENWEATHER_API_KEY = settings.OPENWEATHER_API_KEY
+except ImportError:
+    # Fallback to direct environment variable if settings not available
+    OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+
 OPENWEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5"
 SRI_LANKA_TZ = pytz.timezone("Asia/Colombo")
 
