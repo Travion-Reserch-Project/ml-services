@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
-
-from routes import router
+from routes import register_routes
+from app.services import ModelService
 
 # Configure logging
 logging.basicConfig(
@@ -18,11 +18,16 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Transport Service API",
-    description="AI-powered transport query service using BERT NLP + GNN predictions",
+    description="AI-powered transport recommendation service using ML classifier",
     version="1.0.0"
 )
 
-app.include_router(router)
+# Load ML models on startup
+logger.info("Initializing transport service...")
+ModelService.load_models()
+
+# Register all routes
+register_routes(app)
 
 # Run with: uvicorn app:app --reload --port 8001
 if __name__ == "__main__":
