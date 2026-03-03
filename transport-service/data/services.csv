@@ -1,8 +1,0 @@
-service_id,origin_id,destination_id,mode,operator,distance_km,base_duration_min,base_fare
-TRAIN_001,1,5,train,SLR,215,240,1200
-TRAIN_002,2,5,train,SLR,215,240,1200
-BUS_INTERCITY_001,1,4,bus,Intercity,215,300,800
-BUS_INTERCITY_002,2,4,bus,Intercity,215,300,800
-BUS_LUXURY_001,1,4,bus,Luxury,215,280,1500
-BUS_LUXURY_002,2,4,bus,Luxury,215,280,1500
-RIDEHAILING_001,1,4,ridehailing,Uber,215,250,2500

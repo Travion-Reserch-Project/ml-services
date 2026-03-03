@@ -1,8 +1,0 @@
-location_id,name,type,latitude,longitude,region
-1,Colombo Fort Station,train_station,6.9271,79.8423,Western
-2,Colombo Central Station,train_station,6.9432,79.8553,Western
-3,Kandy Bus Stand,bus_stand,7.2906,80.6337,Central
-4,Anuradhapura Bus Stand,bus_stand,8.3365,80.4037,North-Central
-5,Anuradhapura Railway Station,train_station,8.3375,80.405,North-Central
-6,Anuradhapura Town Center,hub,8.334,80.4025,North-Central
-7,Dambulla Junction,hub,7.8731,80.6514,North-Central
