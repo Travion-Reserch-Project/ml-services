@@ -41,6 +41,7 @@ from .schemas import (
     GoldenHourRequest,
     EventImpactRequest,
     PhysicsGoldenHourRequest,
+    ClearChatHistoryRequest,
     ChatResponse,
     TourPlanResponse,
     TourPlanMetadataResponse,
@@ -52,6 +53,11 @@ from .schemas import (
     ItinerarySlotResponse,
     ConstraintViolationResponse,
     ShadowMonitorLogResponse,
+    StepResultResponse,
+    ClarificationQuestionResponse,
+    ClarificationOptionResponse,
+    CulturalTipResponse,
+    EventInfoResponse,
     # Event Sentinel schemas (Temporal-Spatial Correlation)
     ConstraintInfo,
     BridgeDayInfo,
@@ -222,6 +228,21 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ News API: UNAVAILABLE")
             logger.warning(f"   └─ {news_health.error_message}")
 
+    # ChromaDB (Vector Store)
+    try:
+        from .graph.nodes.retrieval import get_vectordb_service
+        vectordb = get_vectordb_service()
+        if vectordb.enabled:
+            doc_count = vectordb.collection.count() if vectordb.collection else 0
+            logger.info(f"✅ ChromaDB: AVAILABLE ({doc_count} documents)")
+            health_monitor.report_success(ServiceType.CHROMADB)
+        else:
+            logger.warning("⚠️ ChromaDB: DISABLED (initialization failed)")
+            health_monitor.report_failure(ServiceType.CHROMADB, "VectorDB not enabled")
+    except Exception as e:
+        logger.error(f"❌ ChromaDB: FAILED - {e}")
+        health_monitor.report_failure(ServiceType.CHROMADB, str(e))
+
     # Initialize recommendation components
     try:
         recommender = get_recommender()
@@ -308,6 +329,22 @@ app.add_middleware(
 
 
 # =============================================================================
+# HELPER: User-scoped thread ID
+# =============================================================================
+
+def _build_user_thread_id(user_id: Optional[str], thread_id: Optional[str]) -> Optional[str]:
+    """
+    Build a user-scoped thread ID to ensure chat history isolation per user.
+    If user_id is provided, prefix the thread_id with user_id.
+    """
+    if not thread_id:
+        return None
+    if user_id:
+        return f"{user_id}_{thread_id}"
+    return thread_id
+
+
+# =============================================================================
 # MAIN CHAT ENDPOINT
 # =============================================================================
 
@@ -338,10 +375,13 @@ async def chat(request: ChatRequest):
         ChatResponse with agent's response and metadata
     """
     try:
+        # Build user-scoped thread_id for chat history isolation
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
         # Invoke the agent
         result = await invoke_agent(
             query=request.message,
-            thread_id=request.thread_id
+            thread_id=scoped_thread_id
         )
 
         # Check for errors
@@ -449,10 +489,13 @@ async def location_chat(request: LocationChatRequest):
             ]
             logger.info(f"Location chat includes {len(conversation_history)} previous messages")
 
+        # Build user-scoped thread_id for chat history isolation
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
         # Invoke the agent with location focus and conversation history
         result = await invoke_agent(
             query=enriched_query,
-            thread_id=request.thread_id,
+            thread_id=scoped_thread_id,
             target_location=request.location_name,
             conversation_history=conversation_history
         )
@@ -542,11 +585,12 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
         TourPlanResponse with optimized itinerary and metadata
     """
     import uuid
-    
+
     try:
-        # Generate or use provided thread_id
-        thread_id = request.thread_id or f"tour_{uuid.uuid4().hex[:12]}"
-        
+        # Generate or use provided thread_id, scoped to user
+        raw_thread_id = request.thread_id or f"tour_{uuid.uuid4().hex[:12]}"
+        thread_id = _build_user_thread_id(request.user_id, raw_thread_id) or raw_thread_id
+
         # Build tour plan context
         tour_plan_context = {
             "selected_locations": [
@@ -599,6 +643,9 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
                 icon=slot.get("icon"),
                 highlight=slot.get("highlight", False),
                 ai_insight=slot.get("ai_insight"),
+                cultural_tip=slot.get("cultural_tip"),
+                ethical_note=slot.get("ethical_note"),
+                best_photo_time=slot.get("best_photo_time"),
             ))
         
         # Build metadata response
@@ -610,6 +657,7 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
             golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
             crowd_optimized=plan_metadata.get("crowd_optimized", True),
             event_aware=plan_metadata.get("event_aware", True),
+            preference_match_explanation=plan_metadata.get("preference_match_explanation"),
         )
         
         # Build constraint violations
@@ -638,16 +686,111 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
                 for log in result.get("shadow_monitor_logs", [])
             ]
         
+        # Build step results
+        step_results = None
+        if result.get("step_results"):
+            step_results = [
+                StepResultResponse(
+                    node=s.get("node", ""),
+                    status=s.get("status", ""),
+                    summary=s.get("summary", ""),
+                    duration_ms=s.get("duration_ms", 0),
+                )
+                for s in result.get("step_results", [])
+            ]
+
+        # Build clarification question
+        clarification_question = None
+        clarification_data = result.get("clarification_question")
+        if clarification_data and result.get("clarification_needed"):
+            clarification_question = ClarificationQuestionResponse(
+                question=clarification_data.get("question", ""),
+                options=[
+                    ClarificationOptionResponse(
+                        label=opt.get("label", ""),
+                        description=opt.get("description", ""),
+                        recommended=opt.get("recommended", False),
+                    )
+                    for opt in clarification_data.get("options", [])
+                ],
+                context=clarification_data.get("context", ""),
+                type=clarification_data.get("type", "single_select"),
+            )
+
+        # Build cultural tips
+        cultural_tips = None
+        if result.get("cultural_tips"):
+            cultural_tips = [
+                CulturalTipResponse(
+                    location=tip.get("location", ""),
+                    tip=tip.get("tip", ""),
+                    category=tip.get("category", "cultural"),
+                )
+                for tip in result.get("cultural_tips", [])
+            ]
+
+        # Extract warnings and tips
+        warnings = result.get("warnings") or None
+        tips = result.get("tips") or None
+
+        # Build events info from event data
+        events = None
+        event_data = result.get("event_data") or {}
+        if event_data:
+            events_list = []
+            # Poya days
+            for poya in event_data.get("poya_days", []):
+                if isinstance(poya, dict):
+                    events_list.append(EventInfoResponse(
+                        date=poya.get("date", ""),
+                        name=poya.get("name", "Poya Day"),
+                        type="poya",
+                        impact=f"Crowd modifier: {poya.get('crowd_modifier', 1.0)}x",
+                        warnings=poya.get("warnings", []),
+                    ))
+                elif isinstance(poya, str):
+                    events_list.append(EventInfoResponse(
+                        date=poya,
+                        name="Poya Full Moon Day",
+                        type="poya",
+                        impact="Alcohol sales banned. Expect higher crowds at religious sites.",
+                        warnings=["Alcohol sales banned island-wide on Poya days"],
+                    ))
+            # Holidays
+            for holiday in event_data.get("holidays", []):
+                if isinstance(holiday, dict):
+                    events_list.append(EventInfoResponse(
+                        date=holiday.get("date", ""),
+                        name=holiday.get("name", "Holiday"),
+                        type="holiday",
+                        impact=holiday.get("impact", ""),
+                        warnings=holiday.get("warnings", []),
+                    ))
+                elif isinstance(holiday, str):
+                    events_list.append(EventInfoResponse(
+                        date="",
+                        name=holiday,
+                        type="holiday",
+                        impact="Public holiday — some businesses may be closed.",
+                        warnings=[],
+                    ))
+            if events_list:
+                events = events_list
+
         return TourPlanResponse(
             success=True,
             thread_id=thread_id,
-            response=result.get("final_response", "Tour plan generated successfully!"),
+            response=result.get("final_response") or ("I need a bit more information to create the best plan for you." if result.get("clarification_needed") else "Tour plan generated successfully!"),
             itinerary=itinerary,
             metadata=metadata,
             constraints=constraints,
             reasoning_logs=reasoning_logs,
-            warnings=None,  # TODO: Extract from constraints
-            tips=None,  # TODO: Extract from response
+            warnings=warnings,
+            tips=tips,
+            step_results=step_results,
+            clarification_question=clarification_question,
+            cultural_tips=cultural_tips,
+            events=events,
         )
         
     except HTTPException:
@@ -691,6 +834,61 @@ async def refine_tour_plan(request: TourPlanGenerateRequest):
     
     # Use the same generate logic with the existing thread_id
     return await generate_tour_plan(request)
+
+
+# =============================================================================
+# CLEAR CHAT HISTORY ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/chat/clear-history",
+    tags=["Chat"],
+    summary="Clear chat history for a thread",
+    description="""
+    Clear the LangGraph checkpoint memory for a specific thread.
+    This removes the conversation history stored in the agent's memory
+    for the given user and thread combination.
+    """
+)
+async def clear_chat_history(request: ClearChatHistoryRequest):
+    """
+    Clear chat history endpoint.
+
+    Args:
+        request: ClearChatHistoryRequest with thread_id and user_id
+
+    Returns:
+        Success status
+    """
+    try:
+        # Build user-scoped thread_id
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+        if not scoped_thread_id:
+            scoped_thread_id = request.thread_id
+
+        # Clear the memory for this thread
+        agent = get_agent()
+        if agent.memory and hasattr(agent.memory, 'storage'):
+            # MemorySaver stores checkpoints in a dict keyed by thread_id
+            # Remove all checkpoints for this thread
+            keys_to_remove = [
+                key for key in agent.memory.storage.keys()
+                if isinstance(key, tuple) and len(key) >= 1 and key[0] == scoped_thread_id
+            ]
+            for key in keys_to_remove:
+                del agent.memory.storage[key]
+
+            logger.info(f"Cleared {len(keys_to_remove)} checkpoint(s) for thread: {scoped_thread_id}")
+
+        return {
+            "success": True,
+            "message": f"Chat history cleared for thread",
+            "thread_id": request.thread_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Clear chat history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
@@ -1694,6 +1892,21 @@ async def health_check():
         components["news_api"] = f"degraded: {news_health.error_message}"
     else:
         components["news_api"] = "not_configured (optional)"
+
+    # ChromaDB (Vector Store)
+    try:
+        from .graph.nodes.retrieval import get_vectordb_service
+        vectordb = get_vectordb_service()
+        if vectordb.enabled:
+            doc_count = vectordb.collection.count() if vectordb.collection else 0
+            components["chromadb"] = f"available ({doc_count} documents)"
+            health_monitor.report_success(ServiceType.CHROMADB)
+        else:
+            components["chromadb"] = "disabled"
+            health_monitor.report_failure(ServiceType.CHROMADB, "VectorDB not enabled")
+    except Exception as e:
+        components["chromadb"] = f"error: {str(e)}"
+        health_monitor.report_failure(ServiceType.CHROMADB, str(e))
 
     # Physics Engine
     try:

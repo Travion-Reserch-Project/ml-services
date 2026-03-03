@@ -118,6 +118,9 @@ class ItinerarySlot(TypedDict):
         icon: Icon name for UI display
         highlight: Whether this is a highlighted activity
         ai_insight: AI-generated insight for this activity
+        cultural_tip: Cultural etiquette tip for the activity/location
+        ethical_note: Ethical consideration or restriction
+        best_photo_time: Exact recommended photography time window
     """
     time: str
     location: str
@@ -131,6 +134,9 @@ class ItinerarySlot(TypedDict):
     icon: Optional[str]
     highlight: Optional[bool]
     ai_insight: Optional[str]
+    cultural_tip: Optional[str]
+    ethical_note: Optional[str]
+    best_photo_time: Optional[str]
 
 
 class TourPlanContext(TypedDict):
@@ -162,6 +168,7 @@ class TourPlanMetadata(TypedDict):
         golden_hour_optimized: Whether golden hour is optimized
         crowd_optimized: Whether crowd levels are optimized
         event_aware: Whether events/holidays are considered
+        preference_match_explanation: Why this plan matches user interests
     """
     match_score: int
     total_days: int
@@ -169,6 +176,79 @@ class TourPlanMetadata(TypedDict):
     golden_hour_optimized: bool
     crowd_optimized: bool
     event_aware: bool
+    preference_match_explanation: Optional[str]
+
+
+class UserPreferences(TypedDict):
+    """
+    User's travel preference profile for personalized tour planning.
+
+    Attributes:
+        history: Interest in historical/cultural sites (0-1)
+        adventure: Interest in adventure activities (0-1)
+        nature: Interest in nature/wildlife (0-1)
+        relaxation: Interest in relaxation/leisure (0-1)
+        pace: Travel pace preference
+        budget: Budget range
+        group_size: Group size type
+        dietary: Dietary restrictions
+        accessibility: Accessibility needs
+    """
+    history: float
+    adventure: float
+    nature: float
+    relaxation: float
+    pace: Optional[str]
+    budget: Optional[str]
+    group_size: Optional[str]
+    dietary: Optional[List[str]]
+    accessibility: Optional[bool]
+
+
+class ClarificationQuestion(TypedDict):
+    """
+    Structured question the agent asks the user during tour plan generation.
+
+    Attributes:
+        question: The question text
+        options: List of selectable options
+        context: Why this clarification is needed
+        type: single_select or multi_select
+    """
+    question: str
+    options: List[Dict[str, Any]]
+    context: str
+    type: str
+
+
+class StepResult(TypedDict):
+    """
+    Result from a single node execution for progress tracking.
+
+    Attributes:
+        node: Node name (router, retrieval, shadow_monitor, etc.)
+        status: success, warning, or error
+        summary: Human-readable summary of what happened
+        duration_ms: Execution time in milliseconds
+    """
+    node: str
+    status: str
+    summary: str
+    duration_ms: float
+
+
+class CulturalTip(TypedDict):
+    """
+    Cultural or ethical tip for a location.
+
+    Attributes:
+        location: Location name
+        tip: The cultural/ethical tip text
+        category: cultural, ethical, safety, or etiquette
+    """
+    location: str
+    tip: str
+    category: str
 
 
 class GraphState(TypedDict):
@@ -247,6 +327,19 @@ class GraphState(TypedDict):
     tour_plan_context: Optional[TourPlanContext]
     tour_plan_metadata: Optional[TourPlanMetadata]
 
+    # User Preferences (for personalized planning)
+    user_preferences: Optional[UserPreferences]
+
+    # Agent Clarification (interactive questioning)
+    clarification_needed: bool
+    clarification_question: Optional[ClarificationQuestion]
+
+    # Step-by-step execution tracking (for LangSmith + mobile progress)
+    step_results: Annotated[List[StepResult], operator.add]
+
+    # Cultural & ethical tips
+    cultural_tips: List[CulturalTip]
+
     # Control Flow
     reasoning_loops: int
     error: Optional[str]
@@ -256,7 +349,8 @@ def create_initial_state(
     user_query: str,
     target_location: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
-    tour_plan_context: Optional[TourPlanContext] = None
+    tour_plan_context: Optional[TourPlanContext] = None,
+    user_preferences: Optional[UserPreferences] = None
 ) -> GraphState:
     """
     Factory function to create a fresh GraphState for a new query.
@@ -266,6 +360,7 @@ def create_initial_state(
         target_location: Optional location to focus retrieval on (for location-specific chats)
         conversation_history: Optional list of previous messages for conversation context
         tour_plan_context: Optional context for tour plan generation
+        user_preferences: Optional user preference profile for personalized planning
 
     Returns:
         GraphState: Initialized state ready for graph execution
@@ -279,19 +374,19 @@ def create_initial_state(
         >>> state["target_location"]
         'Sigiriya'
 
-        >>> history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
-        >>> state = create_initial_state("Tell me more", conversation_history=history)
-        >>> len(state["messages"])
-        3
+        >>> prefs = {"history": 0.8, "adventure": 0.3, "nature": 0.6, "relaxation": 0.5}
+        >>> state = create_initial_state("Plan my trip", user_preferences=prefs)
+        >>> state["user_preferences"]["history"]
+        0.8
     """
     # Start with conversation history if provided, otherwise empty list
     messages = []
     if conversation_history:
         messages.extend(conversation_history)
-    
+
     # Add the current user query
     messages.append({"role": "user", "content": user_query})
-    
+
     # Return as a dict (TypedDict is just for type hints, instantiate as regular dict)
     return {
         "messages": messages,
@@ -311,6 +406,11 @@ def create_initial_state(
         "itinerary": None,
         "tour_plan_context": tour_plan_context,
         "tour_plan_metadata": None,
+        "user_preferences": user_preferences,
+        "clarification_needed": False,
+        "clarification_question": None,
+        "step_results": [],
+        "cultural_tips": [],
         "reasoning_loops": 0,
         "error": None,
     }

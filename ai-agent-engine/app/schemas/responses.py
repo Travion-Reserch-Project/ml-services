@@ -27,6 +27,9 @@ class ItinerarySlotResponse(BaseModel):
         icon: Icon name for UI display
         highlight: Whether this is a highlighted activity
         ai_insight: AI-generated insight for this activity
+        cultural_tip: Cultural etiquette tip for this activity
+        ethical_note: Ethical note (e.g., photography restrictions)
+        best_photo_time: Best time for photography at this location
     """
     time: str
     location: str
@@ -40,6 +43,9 @@ class ItinerarySlotResponse(BaseModel):
     icon: Optional[str] = None
     highlight: Optional[bool] = False
     ai_insight: Optional[str] = None
+    cultural_tip: Optional[str] = None
+    ethical_note: Optional[str] = None
+    best_photo_time: Optional[str] = None
 
 
 class ConstraintViolationResponse(BaseModel):
@@ -133,6 +139,7 @@ class TourPlanMetadataResponse(BaseModel):
         golden_hour_optimized: Whether golden hour is optimized
         crowd_optimized: Whether crowd levels are optimized
         event_aware: Whether events/holidays are considered
+        preference_match_explanation: Why this plan matches user preferences
     """
     match_score: int = Field(default=85, ge=0, le=100)
     total_days: int = Field(default=1, ge=1)
@@ -140,6 +147,46 @@ class TourPlanMetadataResponse(BaseModel):
     golden_hour_optimized: bool = True
     crowd_optimized: bool = True
     event_aware: bool = True
+    preference_match_explanation: Optional[str] = None
+
+
+class StepResultResponse(BaseModel):
+    """Step result from the agentic processing pipeline."""
+    node: str
+    status: str
+    summary: str
+    duration_ms: float = 0
+
+
+class ClarificationOptionResponse(BaseModel):
+    """A single option in a clarification question."""
+    label: str
+    description: str
+    recommended: bool = False
+
+
+class ClarificationQuestionResponse(BaseModel):
+    """Structured clarification question for user interaction."""
+    question: str
+    options: List[ClarificationOptionResponse]
+    context: str
+    type: str = "single_select"
+
+
+class CulturalTipResponse(BaseModel):
+    """Cultural tip for a specific location."""
+    location: str
+    tip: str
+    category: str = "cultural"
+
+
+class EventInfoResponse(BaseModel):
+    """Special event or holiday info for the trip dates."""
+    date: str
+    name: str
+    type: str = "holiday"  # 'poya', 'holiday', 'festival', 'school_holiday'
+    impact: str = ""
+    warnings: List[str] = Field(default_factory=list)
 
 
 class TourPlanResponse(BaseModel):
@@ -156,6 +203,9 @@ class TourPlanResponse(BaseModel):
         reasoning_logs: Shadow monitor audit trail
         warnings: List of warnings for the plan
         tips: Helpful tips for the trip
+        step_results: Agentic pipeline step results
+        clarification_question: Structured question when input is ambiguous
+        cultural_tips: Sri Lanka-specific cultural tips
     """
     success: bool = True
     thread_id: str
@@ -166,6 +216,10 @@ class TourPlanResponse(BaseModel):
     reasoning_logs: Optional[List[ShadowMonitorLogResponse]] = None
     warnings: Optional[List[str]] = None
     tips: Optional[List[str]] = None
+    step_results: Optional[List[StepResultResponse]] = None
+    clarification_question: Optional[ClarificationQuestionResponse] = None
+    cultural_tips: Optional[List[CulturalTipResponse]] = None
+    events: Optional[List[EventInfoResponse]] = None
 
     class Config:
         json_schema_extra = {

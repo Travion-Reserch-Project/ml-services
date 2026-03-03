@@ -118,19 +118,21 @@ except ImportError:
     OLLAMA_AVAILABLE = False
     ChatOllama = None
 
-from .state import GraphState, create_initial_state, TourPlanContext
+from .state import GraphState, create_initial_state, TourPlanContext, UserPreferences
 from .nodes import (
     router_node,
     retrieval_node,
     grader_node,
     web_search_node,
     shadow_monitor_node,
+    clarification_node,
     generator_node,
     verifier_node,
     tour_plan_generator_node,
     route_by_intent,
     route_after_grading,
     route_after_verification,
+    route_after_clarification,
     route_to_plan_generator,
 )
 from ..config import settings
@@ -275,6 +277,7 @@ class TravionAgentGraph:
         workflow.add_node("grader", self._grader_wrapper)
         workflow.add_node("web_search", self._web_search_wrapper)
         workflow.add_node("shadow_monitor", self._shadow_monitor_wrapper)
+        workflow.add_node("clarification", self._clarification_wrapper)
         workflow.add_node("generate", self._generator_wrapper)
         workflow.add_node("tour_plan_generate", self._tour_plan_generator_wrapper)
         workflow.add_node("verify", self._verifier_wrapper)
@@ -310,19 +313,29 @@ class TravionAgentGraph:
         # Web search → Shadow Monitor
         workflow.add_edge("web_search", "shadow_monitor")
 
-        # Shadow Monitor → Generate or Tour Plan Generate
+        # Shadow Monitor → Generate or Clarification (for tour plans)
         workflow.add_conditional_edges(
             "shadow_monitor",
             self._route_after_shadow_monitor,
             {
                 "generate": "generate",
-                "tour_plan_generate": "tour_plan_generate"
+                "clarification": "clarification"
+            }
+        )
+
+        # Clarification → Tour Plan Generate or END (if clarification needed)
+        workflow.add_conditional_edges(
+            "clarification",
+            self._route_after_clarification,
+            {
+                "tour_plan_generate": "tour_plan_generate",
+                END: END
             }
         )
 
         # Generate → Verify
         workflow.add_edge("generate", "verify")
-        
+
         # Tour Plan Generate → Verify
         workflow.add_edge("tour_plan_generate", "verify")
 
@@ -352,10 +365,19 @@ class TravionAgentGraph:
         return route_by_intent(state)
 
     def _route_after_shadow_monitor(self, state: GraphState) -> str:
-        """Route after shadow monitor to either generator or tour plan generator."""
+        """Route after shadow monitor to either generator or clarification (for tour plans)."""
         if state.get("tour_plan_context"):
-            return "tour_plan_generate"
+            return "clarification"
         return "generate"
+
+    def _route_after_clarification(self, state: GraphState) -> str:
+        """Route after clarification: end if user input needed, else generate plan."""
+        if state.get("clarification_needed"):
+            # Short-circuit: return the question to the user
+            # Set final_response so the graph returns properly
+            question = state.get("clarification_question", {})
+            return END
+        return "tour_plan_generate"
 
     # Node wrappers that inject LLM
     async def _router_wrapper(self, state: GraphState) -> GraphState:
@@ -376,7 +398,17 @@ class TravionAgentGraph:
 
     async def _shadow_monitor_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for shadow monitor node."""
-        return await shadow_monitor_node(state)
+        import time
+        start_time = time.time()
+        result = await shadow_monitor_node(state)
+        duration_ms = (time.time() - start_time) * 1000
+        step = {"node": "shadow_monitor", "status": "success", "summary": f"Constraint checks completed", "duration_ms": duration_ms}
+        result["step_results"] = result.get("step_results", []) + [step]
+        return result
+
+    async def _clarification_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for clarification node."""
+        return await clarification_node(state, self.llm)
 
     async def _generator_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for generator node with LLM injection."""
@@ -396,7 +428,8 @@ class TravionAgentGraph:
         thread_id: Optional[str] = None,
         target_location: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        tour_plan_context: Optional[Dict[str, Any]] = None
+        tour_plan_context: Optional[Dict[str, Any]] = None,
+        user_preferences: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute the agent workflow for a user query.
@@ -407,24 +440,10 @@ class TravionAgentGraph:
             target_location: Optional location name to focus retrieval on
             conversation_history: Optional list of previous messages for context
             tour_plan_context: Optional context for tour plan generation
+            user_preferences: Optional user preference profile for personalization
 
         Returns:
-            Dict with final state including response and logs
-
-        Example:
-            >>> result = await agent.invoke("What's special about Sigiriya?")
-            >>> print(result["final_response"])
-
-            >>> # Location-specific chat
-            >>> result = await agent.invoke("What's the best time to visit?", target_location="Sigiriya")
-
-            >>> # With conversation history
-            >>> history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
-            >>> result = await agent.invoke("Tell me more", conversation_history=history)
-            
-            >>> # Tour plan generation
-            >>> context = {"selected_locations": [...], "start_date": "2026-01-05", "end_date": "2026-01-07"}
-            >>> result = await agent.invoke("Generate my tour plan", tour_plan_context=context)
+            Dict with final state including response, step results, and cultural tips
         """
         if not self.graph:
             return {
@@ -432,12 +451,13 @@ class TravionAgentGraph:
                 "final_response": "I'm having trouble processing your request. Please try again."
             }
 
-        # Create initial state with optional target location, conversation history, and tour plan context
+        # Create initial state with all optional parameters
         initial_state = create_initial_state(
-            query, 
+            query,
             target_location=target_location,
             conversation_history=conversation_history,
-            tour_plan_context=tour_plan_context
+            tour_plan_context=tour_plan_context,
+            user_preferences=user_preferences,
         )
 
         # Configure thread with tracing metadata
@@ -449,6 +469,7 @@ class TravionAgentGraph:
                 tags=["chat", target_location or "general"],
                 metadata={
                     "has_tour_plan_context": bool(tour_plan_context),
+                    "has_user_preferences": bool(user_preferences),
                     "conversation_length": len(conversation_history) if conversation_history else 0,
                 }
             )
@@ -483,7 +504,12 @@ class TravionAgentGraph:
                 "shadow_monitor_logs": final_state.get("shadow_monitor_logs"),
                 "reasoning_loops": final_state.get("reasoning_loops", 0),
                 "documents_retrieved": len(final_state.get("retrieved_documents", [])),
-                "web_search_used": len(final_state.get("web_search_results", [])) > 0
+                "web_search_used": len(final_state.get("web_search_results", [])) > 0,
+                # New fields for super-accuracy
+                "step_results": final_state.get("step_results", []),
+                "clarification_needed": final_state.get("clarification_needed", False),
+                "clarification_question": final_state.get("clarification_question"),
+                "cultural_tips": final_state.get("cultural_tips", []),
             }
 
         except Exception as e:
@@ -607,7 +633,8 @@ async def invoke_agent(
     thread_id: Optional[str] = None,
     target_location: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
-    tour_plan_context: Optional[Dict[str, Any]] = None
+    tour_plan_context: Optional[Dict[str, Any]] = None,
+    user_preferences: Optional[Dict[str, Any]] = None
 ) -> Dict:
     """
     Convenience function to invoke the agent.
@@ -618,15 +645,17 @@ async def invoke_agent(
         target_location: Optional location name to focus retrieval on
         conversation_history: Optional list of previous messages for context
         tour_plan_context: Optional context for tour plan generation
+        user_preferences: Optional user preference profile for personalization
 
     Returns:
-        Dict with agent response
+        Dict with agent response including step_results, cultural_tips, clarification
     """
     agent = get_agent()
     return await agent.invoke(
-        query, 
-        thread_id, 
-        target_location=target_location, 
+        query,
+        thread_id,
+        target_location=target_location,
         conversation_history=conversation_history,
-        tour_plan_context=tour_plan_context
+        tour_plan_context=tour_plan_context,
+        user_preferences=user_preferences,
     )
