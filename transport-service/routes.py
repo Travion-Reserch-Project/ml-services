@@ -26,12 +26,22 @@ def get_transport_service():
     global transport_service
     if transport_service is None:
         from utils.transport_service_gnn import TransportServiceGNN
+        # Optionally fetch via MLflow registry at runtime
+        model_source = os.getenv('MODEL_SOURCE', '').strip().lower()
+        if model_source == 'mlflow':
+            try:
+                # Try to ensure the model checkpoint exists locally via MLflow
+                from download_model import ensure_model_available_via_mlflow
+                print("🌐 MODEL_SOURCE=mlflow: attempting to resolve model from registry...")
+                ensure_model_available_via_mlflow()
+            except Exception as e:
+                print(f"⚠️  MLflow registry resolution failed: {e}")
         model_path = 'model/transport_gnn_model.pth'
         data_path = 'data'
-
+        # Always instantiate the service; it can operate without a model
+        # (returns baseline ratings) and will still load CSV data.
         if not os.path.exists(model_path):
-            print(f"⚠️ Model not found at {model_path}")
-            return None
+            print(f"⚠️ Model not found at {model_path}. Service will start without ML model.")
 
         transport_service = TransportServiceGNN(model_path, data_path)
     return transport_service

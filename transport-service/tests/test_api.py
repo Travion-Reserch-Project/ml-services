@@ -23,8 +23,16 @@ def test_app_structure():
     with open(app_path, 'r') as f:
         content = f.read()
         assert 'FastAPI' in content, "FastAPI not found in app.py"
-        assert '/api/query' in content, "Query endpoint not found"
-        assert '/health' in content, "Health endpoint not found"
+        assert 'from routes import router' in content or 'import router' in content, "Router import not found"
+    
+    # Check routes.py for endpoints
+    routes_path = os.path.join(os.path.dirname(__file__), '..', 'routes.py')
+    assert os.path.exists(routes_path), "routes.py not found"
+    
+    with open(routes_path, 'r') as f:
+        routes_content = f.read()
+        assert '/api/query' in routes_content or '/api/recommend' in routes_content, "API endpoints not found"
+        assert '/health' in routes_content or '/api/health' in routes_content, "Health endpoint not found"
 
 def test_requirements():
     """Test that requirements.txt exists and has expected packages"""

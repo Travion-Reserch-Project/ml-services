@@ -1,0 +1,107 @@
+"""
+Pydantic Schemas Package for Travion AI Engine.
+
+This package contains all request and response models for the API.
+"""
+
+from .requests import (
+    ChatRequest,
+    LocationChatRequest,
+    ConversationMessage,
+    PlanRequest,
+    TourPlanGenerateRequest,
+    SelectedLocationInput,
+    CrowdPredictionRequest,
+    EventCheckRequest,
+    GoldenHourRequest,
+    EventImpactRequest,
+    PhysicsGoldenHourRequest,
+    # Simple API requests
+    SimpleCrowdPredictionRequest,
+    SimpleGoldenHourRequest,
+    UserPreferenceScores,
+    LocationDescriptionRequest,
+    SimpleRecommendationRequest,
+)
+from .responses import (
+    ChatResponse,
+    ItinerarySlotResponse,
+    ConstraintViolationResponse,
+    ShadowMonitorLogResponse,
+    TourPlanResponse,
+    TourPlanMetadataResponse,
+    CrowdPredictionResponse,
+    EventCheckResponse,
+    GoldenHourResponse,
+    HealthResponse,
+    ErrorResponse,
+    # Event Sentinel schemas (Temporal-Spatial Correlation)
+    ConstraintInfo,
+    BridgeDayInfo,
+    TemporalIndexEntry,
+    LocationSensitivity,
+    EventImpactResponse,
+    # Physics Golden Hour schemas
+    TimeWindowResponse,
+    LocationInfo,
+    CalculationMetadata,
+    SolarPositionResponse,
+    PhysicsGoldenHourResponse,
+    # Simple API responses
+    SimpleCrowdPredictionResponse,
+    SimpleGoldenHourResponse,
+    LocationDescriptionResponse,
+    SimpleRecommendationLocation,
+    SimpleRecommendationResponse,
+)
+
+__all__ = [
+    # Requests
+    "ChatRequest",
+    "LocationChatRequest",
+    "ConversationMessage",
+    "PlanRequest",
+    "TourPlanGenerateRequest",
+    "SelectedLocationInput",
+    "CrowdPredictionRequest",
+    "EventCheckRequest",
+    "GoldenHourRequest",
+    "EventImpactRequest",
+    "PhysicsGoldenHourRequest",
+    # Simple API requests
+    "SimpleCrowdPredictionRequest",
+    "SimpleGoldenHourRequest",
+    "UserPreferenceScores",
+    "LocationDescriptionRequest",
+    "SimpleRecommendationRequest",
+    # Responses
+    "ChatResponse",
+    "ItinerarySlotResponse",
+    "ConstraintViolationResponse",
+    "ShadowMonitorLogResponse",
+    "TourPlanResponse",
+    "TourPlanMetadataResponse",
+    "CrowdPredictionResponse",
+    "EventCheckResponse",
+    "GoldenHourResponse",
+    "HealthResponse",
+    "ErrorResponse",
+    # Event Sentinel (Temporal-Spatial Correlation)
+    "ConstraintInfo",
+    "BridgeDayInfo",
+    "TemporalIndexEntry",
+    "LocationSensitivity",
+    "EventImpactResponse",
+    # Physics Golden Hour
+    "TimeWindowResponse",
+    "LocationInfo",
+    "CalculationMetadata",
+    "SolarPositionResponse",
+    "PhysicsGoldenHourResponse",
+    # Simple API responses
+    "SimpleCrowdPredictionResponse",
+    "SimpleGoldenHourResponse",
+    "LocationDescriptionResponse",
+    "SimpleRecommendationLocation",
+    "SimpleRecommendationResponse",
+]

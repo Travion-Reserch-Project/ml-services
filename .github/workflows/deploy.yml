@@ -7,6 +7,13 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: travion-ml-service
+  DAGSHUB_REPO_OWNER: iamsahan
+  DAGSHUB_REPO_NAME: ml-services
+  MONGODB_DB_NAME: transport_service
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Job 1: Run tests
@@ -188,10 +195,10 @@ jobs:
   #         severity: "CRITICAL,HIGH"
   #         scanners: "vuln"
 
-  # Job 4: Trigger infrastructure deployment
+  # Job 3: Trigger infrastructure deployment
   trigger-deployment:
     name: Trigger Infrastructure Deployment
-    needs: [build-and-push]
+    needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
 
@@ -220,6 +227,15 @@ jobs:
               "sha": "${{ github.sha }}",
               "image": "${{ needs.build-and-push.outputs.image-tag }}",
               "triggered_by": "${{ github.actor }}",
+              "mongodb": {
+                "uri": "${{ secrets.MONGODB_URI }}",
+                "db_name": "${{ env.MONGODB_DB_NAME }}"
+              },
+              "dagshub": {
+                "token": "${{ secrets.DAGSHUB_TOKEN }}",
+                "repo_owner": "${{ env.DAGSHUB_REPO_OWNER }}",
+                "repo_name": "${{ env.DAGSHUB_REPO_NAME }}"
+              },
               "infisical": {
                 "client_id": "${{ secrets.INFISICAL_CLIENT_ID }}",
                 "client_secret": "${{ secrets.INFISICAL_CLIENT_SECRET }}",

@@ -6,9 +6,12 @@ services:
     build: ./transport-service
     container_name: transport-service
     ports:
-      - "8001:8000"
+      - "8001:8001"
     volumes:
       - ./transport-service:/app
+    env_file:
+      - .env
+      - ./transport-service/.env
     environment:
       - PYTHONUNBUFFERED=1
       - SERVICE_NAME=transport-service
