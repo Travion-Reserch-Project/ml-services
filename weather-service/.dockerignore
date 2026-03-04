@@ -1,0 +1,26 @@
+# Weather Service - Docker ignore file
+
+__pycache__/
+*.py[cod]
+.Python
+*.egg-info/
+
+venv/
+env/
+
+.pytest_cache/
+logs/
+*.log
+
+.vscode/
+.idea/
+
+models/*.pt
+models/*.pth
+models/*.pkl
+
+.git/
+.github/
+README.md
+
+.DS_Store

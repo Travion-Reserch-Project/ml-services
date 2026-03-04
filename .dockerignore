@@ -1,0 +1,103 @@
+# Docker build context ignore file
+# Speeds up Docker builds by excluding unnecessary files
+
+# Version control
+.git
+.github
+.gitignore
+.gitattributes
+
+# Development
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+.venv
+.env.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation
+docs/_build/
+site/
+
+# ML models (usually large, should be downloaded at runtime)
+*.pkl
+*.joblib
+*.pth
+*.pt
+*.onnx
+*.h5
+models/
+
+# Data files
+data/
+*.csv
+*.json
+logs/
+
+# Cache and temp
+.cache/
+tmp/
+temp/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+*.bak
+.env.backup
+DEPLOYMENT_CHECKLIST.md
