@@ -1,0 +1,27 @@
+# Safety Service - Docker ignore file
+
+__pycache__/
+*.py[cod]
+.Python
+*.egg-info/
+
+venv/
+env/
+
+.pytest_cache/
+logs/
+*.log
+
+.vscode/
+.idea/
+
+model/*.pkl
+model/*.joblib
+
+.git/
+.github/
+README.md
+
+tests/__pycache__/
+
+.DS_Store
