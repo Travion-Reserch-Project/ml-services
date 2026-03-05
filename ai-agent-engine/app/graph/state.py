@@ -251,6 +251,182 @@ class CulturalTip(TypedDict):
     category: str
 
 
+class HotelSearchResult(TypedDict):
+    """
+    Structured result from hotel/restaurant/activity web search.
+
+    Attributes:
+        name: Establishment name
+        type: hotel, restaurant, bar, activity
+        price_range: Price indicator (e.g., "$", "$$", "$$$")
+        rating: Rating out of 5 (if available)
+        url: Link to booking/details page
+        description: Short description
+        distance_from_location: Distance from the queried location
+        location_name: Which itinerary location this is near
+    """
+    name: str
+    type: str
+    price_range: Optional[str]
+    rating: Optional[float]
+    url: Optional[str]
+    description: str
+    distance_from_location: Optional[str]
+    location_name: str
+
+
+class SearchCandidate(TypedDict):
+    """
+    Grounded search candidate from the Advanced Multi-Step Search node.
+
+    Produced by the three-stage pipeline (Broad Search → Semantic Filter → Data Grounding).
+    Contains structured metadata extracted via secondary Tavily search + LLM extraction.
+
+    Attributes:
+        id: Unique candidate ID (e.g., "hotel_a4f2c1d0")
+        name: Establishment or event name
+        type: hotel, restaurant, bar, event
+        description: Short description (max ~300 chars)
+        price_range: "$", "$$", or "$$$" (None if unknown)
+        rating: 0-5 star rating (None if unknown)
+        opening_hours: Human-readable hours string (None if unknown)
+        lat: Latitude (None if unresolved)
+        lng: Longitude (None if unresolved)
+        url: Link to details page
+        location_name: Which itinerary location this is near
+        vibe_match_score: LLM-assigned vibe relevance (0-1, None if not scored)
+    """
+    id: str
+    name: str
+    type: str
+    description: str
+    price_range: Optional[str]
+    rating: Optional[float]
+    opening_hours: Optional[str]
+    lat: Optional[float]
+    lng: Optional[float]
+    url: Optional[str]
+    location_name: str
+    vibe_match_score: Optional[float]
+    photo_urls: Optional[List[str]]
+
+
+class VisualAsset(TypedDict):
+    """
+    Visual asset metadata for a single itinerary stop.
+
+    Designed for rendering map markers and mobile UI cards in the
+    React Native app.
+
+    Attributes:
+        map_marker_icon: Icon type for the map marker (Hotel, Food, Party,
+                         Attraction, Nature, Temple, Camera, Transport)
+        summary: One-line summary optimized for a mobile card (~60 chars)
+    """
+    map_marker_icon: str
+    summary: str
+
+
+class RestaurantRecommendation(TypedDict):
+    """
+    Restaurant recommendation for a meal slot in the itinerary.
+
+    Returned alongside the base plan so the mobile app can display
+    selectable restaurant cards per meal slot.
+    """
+    id: str                          # Unique selection ID (e.g., "rest_d1_lunch_1")
+    name: str
+    rating: Optional[float]          # 0-5
+    cuisine_type: Optional[str]      # "Sri Lankan", "International", etc.
+    price_range: Optional[str]       # "$", "$$", "$$$"
+    url: Optional[str]
+    description: str
+    near_location: str               # Which itinerary location this is near
+    meal_slot: str                   # "breakfast", "lunch", "dinner"
+    day: int                         # Which day of the trip
+    image_url: Optional[str]         # Restaurant photo from Google Maps
+
+
+class AccommodationRecommendation(TypedDict):
+    """
+    Accommodation recommendation for overnight stays.
+
+    Only generated for 2+ day trips. Returned alongside the base plan
+    so the mobile app can display selectable hotel/resort cards.
+    """
+    id: str                          # Unique selection ID (e.g., "hotel_d1_1")
+    name: str
+    rating: Optional[float]          # 0-5
+    price_range: Optional[str]       # "$", "$$", "$$$"
+    url: Optional[str]
+    description: str
+    near_location: str               # Near which itinerary location
+    check_in_day: int                # Day number for check-in
+    type: str                        # "hotel", "resort", "guesthouse"
+
+
+class RouteCoordinate(TypedDict):
+    """A single coordinate point in the route polyline."""
+    lat: float
+    lng: float
+    location_name: str
+    sequence_id: int
+
+
+class ContextualNote(TypedDict):
+    """Dynamic warning or note attached to a specific stop."""
+    sequence_id: int
+    location_name: str
+    note_type: str  # "poya_warning", "weather_alert", "safety_alert", "crowd_warning"
+    message: str
+    severity: str  # "info", "warning", "critical"
+
+
+class FinalItineraryStop(TypedDict):
+    """A single stop in the final itinerary with map-ready data."""
+    sequence_id: int
+    day: int
+    time: str
+    location: str
+    activity: str
+    duration_minutes: int
+    coordinates: Dict[str, float]  # {"lat": ..., "lng": ...}
+    crowd_prediction: float
+    lighting_quality: str
+    weather_summary: Optional[str]
+    icon: Optional[str]
+    highlight: Optional[bool]
+    ai_insight: Optional[str]
+    cultural_tip: Optional[str]
+    ethical_note: Optional[str]
+    best_photo_time: Optional[str]
+    best_for_photos: Optional[bool]
+    notes: Optional[str]
+    visual_assets: Optional[VisualAsset]
+    visual_hierarchy: Optional[int]  # 1=must-see, 2=recommended, 3=optional
+
+
+class FinalItinerary(TypedDict):
+    """
+    Visual-ready structured itinerary JSON for maps integration.
+
+    Designed for Mapbox/Google Maps rendering with route polylines,
+    markers, and dynamic contextual warnings.
+
+    ``route_geometry`` contains encoded polyline or GeoJSON coordinates
+    suitable for Mapbox GL / Google Maps Directions overlay.
+    """
+    stops: List[FinalItineraryStop]
+    route_polyline: List[RouteCoordinate]
+    route_geometry: Optional[List[Dict[str, Any]]]  # GeoJSON LineString coords for Mapbox
+    contextual_notes: List[ContextualNote]
+    total_distance_km: float
+    total_days: int
+    summary: str
+    warnings: List[str]
+    tips: List[str]
+
+
 class GraphState(TypedDict):
     """
     Central state object for the Agentic RAG workflow.
@@ -340,6 +516,53 @@ class GraphState(TypedDict):
     # Cultural & ethical tips
     cultural_tips: List[CulturalTip]
 
+    # Weather data (flows from Shadow Monitor → Tour Plan Generator)
+    weather_data: Optional[Dict[str, Any]]
+
+    # Hotel/Restaurant search results
+    hotel_search_results: List[HotelSearchResult]
+
+    # Restaurant recommendations (per meal slot, for plan generation)
+    restaurant_recommendations: List[RestaurantRecommendation]
+
+    # Accommodation recommendations (per overnight, for multi-day trips)
+    accommodation_recommendations: List[AccommodationRecommendation]
+
+    # User selections from recommendations (for refine step)
+    selected_restaurant_ids: Optional[List[str]]
+    selected_accommodation_ids: Optional[List[str]]
+    skip_restaurants: Optional[bool]
+    skip_accommodations: Optional[bool]
+
+    # Constraint interrupt state (for human-in-the-loop on violations)
+    interrupt_reason: Optional[str]
+    user_constraint_choice: Optional[str]
+
+    # Visual-ready structured itinerary for maps
+    final_itinerary: Optional[FinalItinerary]
+
+    # Advanced Multi-Step Search & Selection (HITL)
+    search_candidates: List[SearchCandidate]
+    pending_user_selection: bool
+    selected_search_candidate_id: Optional[str]
+    selected_search_candidate: Optional[SearchCandidate]
+
+    # MCP Search — Selection Cards & Metadata
+    selection_cards: Optional[List[Dict[str, Any]]]
+    mcp_search_metadata: Optional[Dict[str, Any]]
+
+    # Restaurant HITL — pause during tour plan generation for restaurant pick
+    pending_restaurant_selection: Optional[bool]
+
+    # Map-Ready Itinerary (post-selection re-optimised output)
+    map_ready_itinerary: Optional[Dict[str, Any]]
+
+    # Weather Interrupt — USER_PROMPT_REQUIRED state
+    weather_interrupt: Optional[bool]
+    weather_prompt_message: Optional[str]
+    weather_prompt_options: Optional[List[Dict[str, str]]]
+    user_weather_choice: Optional[str]
+
     # Control Flow
     reasoning_loops: int
     error: Optional[str]
@@ -411,6 +634,29 @@ def create_initial_state(
         "clarification_question": None,
         "step_results": [],
         "cultural_tips": [],
+        "weather_data": None,
+        "hotel_search_results": [],
+        "restaurant_recommendations": [],
+        "accommodation_recommendations": [],
+        "selected_restaurant_ids": None,
+        "selected_accommodation_ids": None,
+        "skip_restaurants": None,
+        "skip_accommodations": None,
+        "interrupt_reason": None,
+        "user_constraint_choice": None,
+        "final_itinerary": None,
+        "search_candidates": [],
+        "pending_user_selection": False,
+        "selected_search_candidate_id": None,
+        "selected_search_candidate": None,
+        "selection_cards": None,
+        "mcp_search_metadata": None,
+        "pending_restaurant_selection": None,
+        "map_ready_itinerary": None,
+        "weather_interrupt": None,
+        "weather_prompt_message": None,
+        "weather_prompt_options": None,
+        "user_weather_choice": None,
         "reasoning_loops": 0,
         "error": None,
     }

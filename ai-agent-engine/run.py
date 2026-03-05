@@ -15,10 +15,17 @@ Environment Variables:
 """
 
 import argparse
+import asyncio
 import os
 import sys
 
 import uvicorn
+
+# Fix "too many file descriptors in select()" on Windows.
+# The default SelectorEventLoop only supports ~512 sockets;
+# ProactorEventLoop has no such limit.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 def main():

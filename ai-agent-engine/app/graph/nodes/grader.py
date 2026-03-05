@@ -261,6 +261,7 @@ Grade this document's relevance (RELEVANT, PARTIAL, or IRRELEVANT):"""
     return grades
 
 
+@trace_node("grader")
 async def grader_node(state: GraphState, llm=None) -> GraphState:
     """
     Grader Node: Assess relevance of retrieved documents.
@@ -281,6 +282,8 @@ async def grader_node(state: GraphState, llm=None) -> GraphState:
         the agent to recognize its own knowledge gaps and take corrective
         action rather than generating hallucinated responses.
     """
+    import time as _time
+    _start = _time.time()
     query = state["user_query"]
     documents = state.get("retrieved_documents", [])
     target_location = state.get("target_location")
@@ -317,10 +320,18 @@ async def grader_node(state: GraphState, llm=None) -> GraphState:
                f"Needs web search: {relevance_result['needs_web_search']}")
 
     # Update state
+    _duration_ms = (_time.time() - _start) * 1000
+    next_step = "web_search" if relevance_result["needs_web_search"] else "shadow_monitor"
     return {
         **state,
         "document_relevance": relevance_result["relevance"],
         "needs_web_search": relevance_result["needs_web_search"],
+        "step_results": [{
+            "node": "grader",
+            "status": "success" if not relevance_result["needs_web_search"] else "warning",
+            "summary": f"Relevance: {relevance_result['relevance'].value} | Score: {relevance_result['score']:.3f} | Reason: {relevance_result['reason']} | Next: {next_step}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),
             "check_type": "grader",

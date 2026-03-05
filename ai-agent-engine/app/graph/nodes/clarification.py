@@ -23,7 +23,18 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from ..state import GraphState, ClarificationQuestion
+# Tracing
+try:
+    from ...utils.tracing import trace_node
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+from ..state import GraphState, ClarificationQuestion, ConstraintViolation
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +116,158 @@ def _check_location_day_balance(tour_context: Dict[str, Any]) -> Optional[Clarif
     return None
 
 
+def _check_constraint_interrupts(
+    constraint_violations: List[Dict[str, Any]],
+    tour_context: Dict[str, Any],
+    weather_data: Optional[Dict[str, Any]] = None,
+) -> Optional[ClarificationQuestion]:
+    """
+    Check Shadow Monitor constraint violations and generate human-in-the-loop
+    interrupt questions for HIGH/CRITICAL violations.
+
+    Instead of the agent autonomously deciding, it pauses and asks the user
+    for their preference when a serious constraint is detected.
+    """
+    if not constraint_violations:
+        # Also check weather_data for rain > 80%
+        # weather_data is a WeatherValidationResult.dict() from the Shadow Monitor,
+        # with keys: is_valid, overall_risk_level, score, location_reports, etc.
+        if weather_data and isinstance(weather_data, dict):
+            rain_locations = []
+
+            # Extract rain info from location_reports (WeatherValidationResult structure)
+            location_reports = weather_data.get("location_reports", [])
+            if isinstance(location_reports, list):
+                for report in location_reports:
+                    if not isinstance(report, dict):
+                        continue
+                    loc_name = report.get("location_name", "Unknown")
+                    suitability = report.get("trip_suitability_score", 100)
+
+                    # Check forecasts for high rain probability
+                    max_rain_prob = 0
+                    needs_indoor = False
+                    forecasts = report.get("forecasts", [])
+                    if isinstance(forecasts, list):
+                        for fc in forecasts:
+                            if isinstance(fc, dict):
+                                rain_prob = fc.get("rain_probability", 0)
+                                if isinstance(rain_prob, (int, float)):
+                                    max_rain_prob = max(max_rain_prob, rain_prob)
+                                if fc.get("is_suitable_outdoor") is False:
+                                    needs_indoor = True
+
+                    if needs_indoor or max_rain_prob > 80 or suitability < 40:
+                        rain_locations.append((loc_name, max_rain_prob))
+
+            # Legacy fallback: weather_data might be a {loc_name: weather_dict} mapping
+            if not rain_locations and not location_reports:
+                for loc_name, wd in weather_data.items():
+                    if not isinstance(wd, dict):
+                        continue
+                    if wd.get("indoor_alternative_needed") or wd.get("rain_probability", 0) > 80:
+                        rain_locations.append((loc_name, wd.get("rain_probability", 0)))
+
+            if rain_locations:
+                loc_names = ", ".join(f"{name} ({prob:.0f}% rain)" for name, prob in rain_locations)
+                return ClarificationQuestion(
+                    question=f"Heavy rain is predicted at {rain_locations[0][0]} during your trip dates. Would you like to adjust your plans?",
+                    options=[
+                        {
+                            "label": "Switch to indoor activities",
+                            "description": f"Replace outdoor activities at {rain_locations[0][0]} with indoor alternatives (museums, cooking classes, spa)",
+                            "recommended": True,
+                        },
+                        {
+                            "label": "Keep outdoor plans",
+                            "description": "Keep the original outdoor activities with rain gear warning",
+                            "recommended": False,
+                        },
+                        {
+                            "label": "Reschedule days",
+                            "description": "Swap the order of days to avoid rain on outdoor-heavy days",
+                            "recommended": False,
+                        },
+                    ],
+                    context=f"Weather forecast shows: {loc_names}. I want to make sure your trip is enjoyable despite the weather.",
+                    type="single_select",
+                )
+        return None
+
+    # Check for Poya day violations
+    poya_violations = [v for v in constraint_violations if "poya" in v.get("constraint_type", "").lower()]
+    if poya_violations:
+        poya_v = poya_violations[0]
+        return ClarificationQuestion(
+            question=f"Your trip falls on a Poya day. {poya_v.get('description', 'Alcohol sales are banned nationwide.')} How would you like to proceed?",
+            options=[
+                {
+                    "label": "Adjust evening plans",
+                    "description": "Replace nightlife/bar activities with cultural evening events, temple ceremonies, or scenic sunset viewpoints",
+                    "recommended": True,
+                },
+                {
+                    "label": "Keep plans as-is",
+                    "description": "Keep the itinerary but add Poya day warnings and notes about restrictions",
+                    "recommended": False,
+                },
+                {
+                    "label": "Add temple visit",
+                    "description": "Include a Poya day temple ceremony — a unique cultural experience most tourists miss",
+                    "recommended": False,
+                },
+            ],
+            context=f"{poya_v.get('description', '')}. {poya_v.get('suggestion', '')}",
+            type="single_select",
+        )
+
+    # Check for weather-related critical violations
+    weather_violations = [v for v in constraint_violations if "weather" in v.get("constraint_type", "").lower() and v.get("severity") in ("high", "critical")]
+    if weather_violations:
+        wv = weather_violations[0]
+        return ClarificationQuestion(
+            question=f"A weather alert has been detected: {wv.get('description', 'Severe weather expected')}. How would you like to handle this?",
+            options=[
+                {
+                    "label": "Switch to indoor alternatives",
+                    "description": "Replace affected outdoor activities with indoor options",
+                    "recommended": True,
+                },
+                {
+                    "label": "Keep with warnings",
+                    "description": "Keep outdoor plans but add weather warnings and backup suggestions",
+                    "recommended": False,
+                },
+            ],
+            context=f"{wv.get('description', '')}. Suggestion: {wv.get('suggestion', '')}",
+            type="single_select",
+        )
+
+    # Check for safety/news alert violations
+    safety_violations = [v for v in constraint_violations if v.get("constraint_type") in ("news_alert", "road_closure") and v.get("severity") in ("high", "critical")]
+    if safety_violations:
+        sv = safety_violations[0]
+        return ClarificationQuestion(
+            question=f"A safety alert has been detected: {sv.get('description', 'Travel advisory in effect')}. What would you prefer?",
+            options=[
+                {
+                    "label": "Avoid affected area",
+                    "description": "Skip the affected location and visit nearby alternatives instead",
+                    "recommended": True,
+                },
+                {
+                    "label": "Proceed with caution",
+                    "description": "Keep the location but add safety warnings and emergency contacts",
+                    "recommended": False,
+                },
+            ],
+            context=f"Alert: {sv.get('description', '')}. {sv.get('suggestion', '')}",
+            type="single_select",
+        )
+
+    return None
+
+
 def _check_preference_availability(
     user_preferences: Optional[Dict[str, Any]],
     locations: List[Dict[str, Any]]
@@ -146,6 +309,7 @@ def _check_preference_availability(
     )
 
 
+@trace_node("clarification")
 async def clarification_node(state: GraphState, llm=None) -> GraphState:
     """
     Clarification Node: Check for missing info and ask the user if needed.
@@ -181,8 +345,15 @@ async def clarification_node(state: GraphState, llm=None) -> GraphState:
         }
 
     # Run checks in priority order
+    # 1. Constraint-based interrupts (weather, Poya, safety) — from Shadow Monitor
+    # 2. Date issues
+    # 3. Location balance
     # Note: Preference check removed — preferences are auto-fetched from user profile
+    constraint_violations = state.get("constraint_violations", [])
+    weather_data = state.get("weather_data")
+
     checks = [
+        ("constraint_interrupt", lambda: _check_constraint_interrupts(constraint_violations, tour_context, weather_data)),
         ("dates", lambda: _check_date_issues(tour_context)),
         ("location_balance", lambda: _check_location_day_balance(tour_context)),
     ]
@@ -196,6 +367,7 @@ async def clarification_node(state: GraphState, llm=None) -> GraphState:
                 **state,
                 "clarification_needed": True,
                 "clarification_question": question,
+                "interrupt_reason": check_name,
                 "step_results": [{
                     "node": "clarification",
                     "status": "needs_input",
@@ -221,7 +393,7 @@ async def clarification_node(state: GraphState, llm=None) -> GraphState:
 
 
 def route_after_clarification(state: GraphState) -> str:
-    """Route after clarification: return to user or proceed to plan generation."""
+    """Route after clarification: return to user (END) or proceed to plan generation."""
     if state.get("clarification_needed"):
-        return "end_with_clarification"
+        return "__end__"
     return "tour_plan_generate"

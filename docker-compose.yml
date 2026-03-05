@@ -21,6 +21,20 @@ services:
 
   # Virtual Tour Guide Service
 
+  # Google Maps MCP Server (Places API adapter for restaurant/hotel search)
+  mcp-google-maps:
+    build: ./mcp-google-maps
+    container_name: mcp-google-maps
+    ports:
+      - "8010:8010"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - ml-services-network
+
   # Risk Prediction Service
 
   # Smart UV Assistance Service

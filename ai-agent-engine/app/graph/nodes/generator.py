@@ -158,7 +158,7 @@ def build_context_string(state: GraphState) -> str:
 
     # Add constraint information
     constraints = state.get("_constraint_results")
-    if constraints:
+    if constraints and isinstance(constraints, dict):
         parts.append("=== CONSTRAINT ANALYSIS ===")
         parts.append(constraints.get("recommendation", ""))
         parts.append("")
@@ -192,6 +192,7 @@ def get_system_prompt(intent: Optional[IntentType], target_location: Optional[st
         return SYSTEM_PROMPTS["tourism_guide"]
 
 
+@trace_node("generator", run_type="llm")
 async def generator_node(state: GraphState, llm=None) -> GraphState:
     """
     Generator Node: Produce final response using LLM.
@@ -212,6 +213,8 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
         provided context to reduce hallucination risk while maintaining
         natural, helpful responses.
     """
+    import time as _time
+    _start = _time.time()
     query = state["user_query"]
     intent = state.get("intent", IntentType.TOURISM_QUERY)
     target_location = state.get("target_location")
@@ -308,10 +311,18 @@ Please provide a helpful response based on the context above.{' Address the corr
     # This enables the conversation memory to persist across messages
     assistant_message = {"role": "assistant", "content": generated_text}
 
+    _duration_ms = (_time.time() - _start) * 1000
+    is_correction = bool(correction_instructions)
     return {
         **state,
         "generated_response": generated_text,
         "messages": [assistant_message],  # Will be appended via operator.add
+        "step_results": [{
+            "node": "generator",
+            "status": "success",
+            "summary": f"Generated {len(generated_text)} chars | Intent: {intent.value} | Location: {target_location or 'general'} | Context: {len(context)} chars | Correction: {is_correction}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry]
     }
 

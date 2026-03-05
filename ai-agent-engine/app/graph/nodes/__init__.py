@@ -32,6 +32,14 @@ from .clarification import clarification_node, route_after_clarification
 from .generator import generator_node
 from .verifier import verifier_node, route_after_verification
 from .tour_plan_generator import tour_plan_generator_node, route_to_plan_generator
+from .hotel_search import hotel_search_node, route_to_hotel_search
+from .advanced_search import (
+    advanced_search_node,
+    should_trigger_advanced_search,
+    detect_search_type,
+)
+from .selection_handler import selection_handler_node
+from .restaurant_selection_handler import restaurant_selection_handler_node
 
 __all__ = [
     # Nodes
@@ -44,12 +52,19 @@ __all__ = [
     "generator_node",
     "verifier_node",
     "tour_plan_generator_node",
+    "hotel_search_node",
+    "advanced_search_node",
+    "selection_handler_node",
+    "restaurant_selection_handler_node",
     # Routing functions
     "route_by_intent",
     "route_after_grading",
     "route_after_verification",
     "route_after_clarification",
     "route_to_plan_generator",
+    "route_to_hotel_search",
+    "should_trigger_advanced_search",
+    "detect_search_type",
     # Utilities
     "extract_entities",
     "get_vectordb_service",

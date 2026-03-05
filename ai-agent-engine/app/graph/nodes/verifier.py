@@ -316,6 +316,7 @@ def verify_tour_plan_quality(
     }
 
 
+@trace_node("verifier")
 async def verifier_node(state: GraphState, llm=None) -> GraphState:
     """
     Verifier Node: Final validation and self-correction check.

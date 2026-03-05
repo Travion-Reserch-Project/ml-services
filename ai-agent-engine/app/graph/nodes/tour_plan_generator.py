@@ -17,15 +17,30 @@ Research Pattern:
     inject it as ground truth, achieving human-tour-guide accuracy.
 """
 
+import asyncio
 import logging
 import json
+import time as _time_mod
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any, Tuple
 import math
 
+# Tracing
+try:
+    from ...utils.tracing import trace_node
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def trace_node(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
 from ..state import (
     GraphState, IntentType, ItinerarySlot, TourPlanMetadata,
-    CulturalTip, UserPreferences
+    CulturalTip, UserPreferences, FinalItinerary, FinalItineraryStop,
+    RouteCoordinate, ContextualNote,
+    RestaurantRecommendation, AccommodationRecommendation
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +120,7 @@ TOUR_PLAN_SYSTEM_PROMPT = """You are Travion, an expert Sri Lankan tour guide wi
 You are generating a PRECISE, PERSONALIZED tour itinerary. You have been given:
 - EXACT golden hour times (calculated by physics engine — use these EXACT times, not guesses)
 - EXACT crowd predictions (calculated by ML model — use these percentages directly)
+- REAL weather forecasts (from OpenWeatherMap API — use these for weather-aware routing)
 - Event/holiday data (Poya days, school holidays, cultural events)
 - User's personal preference profile (what they love vs. what they avoid)
 - Cultural knowledge about each location
@@ -118,12 +134,43 @@ CRITICAL ACCURACY RULES:
 6. Each day should have 8-12 hours of activities (not more than 14 hours)
 7. Include meal breaks (breakfast 7-8AM, lunch 12-1PM, dinner 7-8PM)
 
+WEATHER-AWARE ROUTING RULES (CRITICAL):
+8. If rain_probability > 80% for a location: REPLACE outdoor activities with indoor alternatives (museums, temples, cooking classes, spas, shopping)
+9. If rain_probability 50-80%: Keep outdoor activities but add "Carry rain gear" warning and suggest a backup indoor option
+10. If extreme heat (>35°C): Schedule shaded/indoor activities between 11AM-2PM, suggest hydration breaks
+11. If high winds (>40 km/h): Avoid water sports and exposed hilltop activities
+12. Always include weather context in activity notes (e.g., "Clear skies expected, perfect for photography")
+
 PERSONALIZATION RULES (based on user preference scores 0-1):
 - High history (>0.6): Prioritize heritage sites, museums, ancient ruins with detailed historical context
 - High adventure (>0.6): Include hiking, water sports, rock climbing, off-road activities
 - High nature (>0.6): Focus on national parks, waterfalls, botanical gardens, bird watching
 - High relaxation (>0.6): Include spa time, beach relaxation, scenic viewpoints, gentle walks
 - Balance ALL activities according to the user's exact preference scores
+
+PHOTOGRAPHY TIME PROMINENCE (CRITICAL):
+- For EVERY outdoor location, include a dedicated best_photo_time field
+- Format: "HH:MM-HH:MM (golden hour) — [specific tip for this exact location]"
+- If an activity overlaps with golden hour, set highlight=true and use icon="camera"
+- Always mention the exact golden hour window in ai_insight when relevant
+- Include both morning AND evening golden hour opportunities where applicable
+- For iconic viewpoints (Sigiriya summit, Ella's Nine Arches, etc.), specify the EXACT best angle and time
+
+ACTIVITY OPTIMIZATION RULES (match activities to optimal time of day):
+- Photography/scenic viewpoints: ONLY during golden hour windows (injected above)
+- Temple/religious visits: Early morning (cooler, spiritual, less crowded) or late afternoon
+- Hiking/strenuous activities: Before 10 AM to avoid midday heat
+- Indoor activities (museums, cooking classes, spas): 10 AM - 2 PM (harsh light outside)
+- Beach activities: Morning (calmer water) or late afternoon (golden light)
+- Wildlife/safari: 5:30-7:00 AM or 3:30-5:30 PM (feeding times, best sightings)
+- Shopping/markets: Late morning or evening when vendors are active
+- Use crowd_prediction data to avoid peak hours — if crowd > 60% at a given hour, shift to a lower-crowd slot
+
+RESTAURANT & ACCOMMODATION INTEGRATION:
+- If selected restaurants are provided in context, include them as meal activities at the correct time
+- If selected accommodations are provided, include check-in (evening) and check-out (morning) in the plan
+- Format meal activities with icon="utensils" for lunch/dinner and icon="coffee" for breakfast
+- If no restaurants are selected, still include meal break placeholders at standard times
 
 CULTURAL & ETHICAL INSIGHTS (MANDATORY):
 - For EVERY activity near a temple/religious site: include dress code and behavior rules
@@ -268,14 +315,16 @@ def _compute_golden_hour_data(locations: List[Dict[str, Any]], start_date: str, 
             lon = loc.get("longitude", 80.7718)
 
             try:
-                result = gh_agent.calculate_golden_hour(lat, lon, start_dt.isoformat())
+                result = gh_agent.get_sun_times(start_dt, lat, lon, name)
+                morning_gh = result.get("golden_hour_morning", {})
+                evening_gh = result.get("golden_hour_evening", {})
                 golden_data[name] = {
                     "sunrise": result.get("sunrise", "06:00"),
                     "sunset": result.get("sunset", "18:00"),
-                    "morning_golden_start": result.get("morning_golden_start", "05:45"),
-                    "morning_golden_end": result.get("morning_golden_end", "06:30"),
-                    "evening_golden_start": result.get("evening_golden_start", "17:30"),
-                    "evening_golden_end": result.get("evening_golden_end", "18:15"),
+                    "morning_golden_start": morning_gh.get("start", "05:45") if isinstance(morning_gh, dict) else "05:45",
+                    "morning_golden_end": morning_gh.get("end", "06:30") if isinstance(morning_gh, dict) else "06:30",
+                    "evening_golden_start": evening_gh.get("start", "17:30") if isinstance(evening_gh, dict) else "17:30",
+                    "evening_golden_end": evening_gh.get("end", "18:15") if isinstance(evening_gh, dict) else "18:15",
                     "day_length_hours": result.get("day_length_hours", 12.0),
                 }
                 logger.info(f"Golden hour for {name}: sunrise={golden_data[name]['sunrise']}, sunset={golden_data[name]['sunset']}")
@@ -421,6 +470,561 @@ def _compute_event_data(locations: List[Dict[str, Any]], start_date: str, end_da
     return event_data
 
 
+async def _compute_weather_data(locations: List[Dict[str, Any]], start_date: str, end_date: str) -> Dict[str, Any]:
+    """
+    Compute weather forecasts for each location using OpenWeatherMap API.
+
+    Returns dict mapping location_name -> {
+        temperature, rain_probability, wind_speed, condition,
+        is_suitable_outdoor, alerts, indoor_alternative_needed
+    }
+    """
+    weather_data = {}
+
+    try:
+        from ...tools.weather_api import WeatherTool
+        weather_tool = WeatherTool()
+
+        if not weather_tool.is_configured():
+            logger.warning("Weather API not configured, skipping weather data")
+            return weather_data
+
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d") if isinstance(start_date, str) else start_date
+
+        for loc in locations:
+            name = loc.get("name", "Unknown")
+            lat = loc.get("latitude", 7.8731)
+            lon = loc.get("longitude", 80.7718)
+
+            try:
+                report = await weather_tool.get_location_weather_report(
+                    location_name=name,
+                    latitude=lat,
+                    longitude=lon,
+                    target_date=start_dt,
+                )
+
+                # Aggregate forecast data for the location
+                max_rain_prob = 0
+                avg_temp = 25.0
+                max_wind = 0
+                conditions = []
+                alerts = []
+                suitable_count = 0
+
+                for forecast in report.forecasts:
+                    max_rain_prob = max(max_rain_prob, forecast.rain_probability)
+                    avg_temp = forecast.temperature_celsius  # Use latest
+                    max_wind = max(max_wind, forecast.wind_speed_kmh)
+                    if forecast.condition.value not in conditions:
+                        conditions.append(forecast.condition.value)
+                    if forecast.is_suitable_outdoor:
+                        suitable_count += 1
+                    for alert in forecast.alerts:
+                        alerts.append({
+                            "type": alert.alert_type,
+                            "severity": alert.severity.value,
+                            "description": alert.description,
+                            "recommendation": alert.recommendation,
+                        })
+
+                suitability = report.trip_suitability_score
+                indoor_needed = max_rain_prob > 80
+
+                weather_data[name] = {
+                    "temperature_celsius": round(avg_temp, 1),
+                    "rain_probability": round(max_rain_prob),
+                    "wind_speed_kmh": round(max_wind, 1),
+                    "conditions": conditions,
+                    "suitability_score": round(suitability),
+                    "is_suitable_outdoor": suitability >= 50,
+                    "indoor_alternative_needed": indoor_needed,
+                    "alerts": alerts[:3],  # Top 3 alerts
+                    "summary": _build_weather_summary(name, max_rain_prob, avg_temp, max_wind, conditions),
+                }
+                logger.info(f"Weather for {name}: rain={max_rain_prob}%, temp={avg_temp}°C, suitable={suitability}%")
+
+            except Exception as e:
+                logger.warning(f"Weather fetch failed for {name}: {e}")
+                weather_data[name] = {
+                    "temperature_celsius": 28.0,
+                    "rain_probability": 0,
+                    "wind_speed_kmh": 10.0,
+                    "conditions": ["unknown"],
+                    "suitability_score": 70,
+                    "is_suitable_outdoor": True,
+                    "indoor_alternative_needed": False,
+                    "alerts": [],
+                    "summary": "Weather data unavailable — plan for typical tropical conditions.",
+                }
+
+    except ImportError:
+        logger.warning("Weather API tool not available")
+    except Exception as e:
+        logger.warning(f"Weather data computation failed: {e}")
+
+    return weather_data
+
+
+def _build_weather_summary(name: str, rain_prob: float, temp: float, wind: float, conditions: List[str]) -> str:
+    """Build a human-readable weather summary for a location."""
+    parts = []
+    if rain_prob > 80:
+        parts.append(f"HIGH RAIN RISK ({rain_prob:.0f}%) — INDOOR ALTERNATIVES RECOMMENDED")
+    elif rain_prob > 50:
+        parts.append(f"Moderate rain chance ({rain_prob:.0f}%) — carry rain gear")
+    elif rain_prob > 20:
+        parts.append(f"Slight chance of rain ({rain_prob:.0f}%)")
+    else:
+        parts.append("Clear/dry conditions expected")
+
+    if temp > 35:
+        parts.append(f"EXTREME HEAT ({temp:.0f}°C) — avoid midday outdoor activities")
+    elif temp > 32:
+        parts.append(f"Hot ({temp:.0f}°C) — stay hydrated, start early")
+    else:
+        parts.append(f"Pleasant temperature ({temp:.0f}°C)")
+
+    if wind > 40:
+        parts.append(f"Strong winds ({wind:.0f} km/h) — avoid exposed areas")
+    elif wind > 25:
+        parts.append(f"Breezy ({wind:.0f} km/h)")
+
+    return ". ".join(parts)
+
+
+# Indoor alternatives for weather-affected locations
+INDOOR_ALTERNATIVES = {
+    "beach": ["Visit a local museum", "Sri Lankan cooking class", "Spa & wellness session", "Local market exploration"],
+    "hiking": ["Visit tea factory tour", "Temple or religious site", "Art gallery", "Traditional dance show"],
+    "nature": ["Botanical garden (covered areas)", "Wildlife museum", "Gem museum", "Spice garden tour"],
+    "photography": ["Indoor architecture photography", "Museum exhibits", "Cultural workshop", "Food photography at local restaurant"],
+    "general": ["Visit a local museum", "Sri Lankan cooking class", "Temple visit", "Shopping at local craft markets"],
+}
+
+
+def _get_indoor_alternatives(location_name: str) -> List[str]:
+    """Get indoor alternative suggestions based on location type."""
+    name_lower = location_name.lower()
+    if any(w in name_lower for w in ["beach", "coast", "bay"]):
+        return INDOOR_ALTERNATIVES["beach"]
+    if any(w in name_lower for w in ["peak", "mountain", "rock", "hike", "trail"]):
+        return INDOOR_ALTERNATIVES["hiking"]
+    if any(w in name_lower for w in ["park", "forest", "falls", "safari"]):
+        return INDOOR_ALTERNATIVES["nature"]
+    return INDOOR_ALTERNATIVES["general"]
+
+
+def _build_restaurant_selection_cards(
+    restaurant_recs: List[RestaurantRecommendation],
+) -> List[Dict[str, Any]]:
+    """
+    Build mobile-ready selection cards for the top 3 restaurants.
+
+    Sorts by rating (highest first) and returns cards matching the
+    SelectionCard schema consumed by React Native's SelectionCardList.
+    """
+    if not restaurant_recs:
+        return []
+
+    # Sort by rating desc (None → 0), deduplicate by name
+    seen_names: set = set()
+    unique_recs: List[RestaurantRecommendation] = []
+    for rec in sorted(restaurant_recs, key=lambda r: r.get("rating") or 0, reverse=True):
+        name = rec.get("name", "")
+        if name not in seen_names:
+            seen_names.add(name)
+            unique_recs.append(rec)
+
+    top = unique_recs[:3]
+    cards: List[Dict[str, Any]] = []
+    badges = ["Top Pick", "Best Value", "Traveller Fave"]
+
+    for idx, rec in enumerate(top):
+        tags = [t for t in [rec.get("cuisine_type"), rec.get("meal_slot")] if t]
+        cards.append({
+            "card_id": rec["id"],
+            "title": rec["name"],
+            "subtitle": f"{(rec.get('meal_slot') or 'Dining').title()} near {rec.get('near_location', '')}",
+            "badge": badges[idx] if idx < len(badges) else None,
+            "image_url": rec.get("image_url"),
+            "rating": rec.get("rating"),
+            "price_range": rec.get("price_range"),
+            "description": rec.get("description", ""),
+            "tags": tags,
+            "distance_km": None,
+            "vibe_match_score": None,
+        })
+
+    return cards
+
+
+# ── Google Places restaurant cache (4-hour TTL, avoids redundant API calls) ──
+import hashlib as _hashlib
+
+_RESTAURANT_CACHE: Dict[str, Dict[str, Any]] = {}  # {hash: {"data": [...], "ts": float}}
+_RESTAURANT_CACHE_TTL = 4 * 60 * 60  # 4 hours
+
+
+def _restaurant_cache_key(query: str) -> str:
+    return _hashlib.sha256(query.lower().strip().encode()).hexdigest()[:20]
+
+
+def _restaurant_cache_get(key: str) -> Optional[List[Dict[str, Any]]]:
+    import time
+    entry = _RESTAURANT_CACHE.get(key)
+    if entry and (time.time() - entry["ts"]) < _RESTAURANT_CACHE_TTL:
+        return entry["data"]
+    if entry:
+        del _RESTAURANT_CACHE[key]
+    return None
+
+
+def _restaurant_cache_put(key: str, data: List[Dict[str, Any]]) -> None:
+    import time
+    # Evict oldest if cache exceeds 200 entries
+    if len(_RESTAURANT_CACHE) >= 200:
+        oldest = min(_RESTAURANT_CACHE, key=lambda k: _RESTAURANT_CACHE[k]["ts"])
+        del _RESTAURANT_CACHE[oldest]
+    _RESTAURANT_CACHE[key] = {"data": data, "ts": time.time()}
+
+
+async def _search_google_places_restaurants(
+    location_name: str,
+    meal_slot: str,
+    budget: Optional[str] = None,
+    max_results: int = 3,
+) -> List[Dict[str, Any]]:
+    """
+    Call Google Places API (New) Text Search directly to find real
+    restaurants.  Returns normalised dicts with name, rating, price,
+    image_url, etc.
+
+    Requires GOOGLE_MAPS_API_KEY in the environment / settings.
+    """
+    import httpx
+    from ...config import settings
+
+    api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", None) or getattr(settings, "MCP_GOOGLE_MAPS_KEY", None)
+    if not api_key:
+        logger.warning("No GOOGLE_MAPS_API_KEY configured — cannot search Google Places")
+        return []
+
+    budget_hint = f"{budget} " if budget else ""
+    text_query = f"best {budget_hint}{meal_slot} restaurants near {location_name}, Sri Lanka"
+
+    # ── Check cache ──
+    ck = _restaurant_cache_key(text_query)
+    cached = _restaurant_cache_get(ck)
+    if cached is not None:
+        logger.info(f"Restaurant cache HIT for '{text_query}' ({len(cached)} results)")
+        return cached[:max_results]
+
+    # ── Google Places (New) Text Search ──
+    url = "https://places.googleapis.com/v1/places:searchText"
+    fields = [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.rating",
+        "places.userRatingCount",
+        "places.priceLevel",
+        "places.websiteUri",
+        "places.regularOpeningHours",
+        "places.photos",
+        "places.editorialSummary",
+        "places.primaryType",
+    ]
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": ",".join(fields),
+    }
+    body = {
+        "textQuery": text_query,
+        "maxResultCount": max_results,
+        "languageCode": "en",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.warning(f"Google Places API call failed for '{text_query}': {exc}")
+        return []
+
+    # ── Normalise response ──
+    price_map = {
+        "PRICE_LEVEL_FREE": "$",
+        "PRICE_LEVEL_INEXPENSIVE": "$",
+        "PRICE_LEVEL_MODERATE": "$$",
+        "PRICE_LEVEL_EXPENSIVE": "$$$",
+        "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+    }
+
+    results: List[Dict[str, Any]] = []
+    for place in data.get("places", []):
+        display_name = place.get("displayName", {})
+        loc = place.get("location", {})
+        editorial = place.get("editorialSummary", {})
+
+        # First photo URL
+        image_url = None
+        for p in place.get("photos", [])[:1]:
+            photo_name = p.get("name", "")
+            if photo_name:
+                image_url = (
+                    f"https://places.googleapis.com/v1/{photo_name}/media"
+                    f"?maxWidthPx=400&key={api_key}"
+                )
+
+        results.append({
+            "name": display_name.get("text", "Unknown"),
+            "rating": place.get("rating"),
+            "price_range": price_map.get(place.get("priceLevel", ""), "$$"),
+            "url": place.get("websiteUri"),
+            "description": editorial.get("text", place.get("formattedAddress", "")),
+            "image_url": image_url,
+            "latitude": loc.get("latitude"),
+            "longitude": loc.get("longitude"),
+            "primary_type": place.get("primaryType"),
+            "user_rating_count": place.get("userRatingCount"),
+        })
+
+    # ── Cache results ──
+    if results:
+        _restaurant_cache_put(ck, results)
+        logger.info(f"Google Places returned {len(results)} restaurants for '{text_query}'")
+
+    return results
+
+
+async def _compute_restaurant_recommendations(
+    locations: List[Dict[str, Any]],
+    start_date: str,
+    end_date: str,
+    budget: Optional[str] = None,
+) -> List[RestaurantRecommendation]:
+    """
+    Search for real restaurants near each location using the Google
+    Places API (New) Text Search.  Results are cached for 4 hours to
+    reduce API cost.  Falls back to Tavily web search only if no
+    Google Maps API key is configured.
+
+    Returns a flat list of RestaurantRecommendation grouped by day + meal_slot.
+    """
+    recommendations: List[RestaurantRecommendation] = []
+
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d") if isinstance(start_date, str) else start_date
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") if isinstance(end_date, str) else end_date
+        num_days = max(1, (end_dt - start_dt).days + 1)
+
+        # ── Try Google Places API directly ─────────────────────────
+        for day_num in range(1, num_days + 1):
+            loc_idx = min(day_num - 1, len(locations) - 1)
+            loc = locations[loc_idx]
+            loc_name = loc.get("name", "Unknown")
+
+            for meal_slot in ["breakfast", "lunch", "dinner"]:
+                try:
+                    places = await _search_google_places_restaurants(
+                        location_name=loc_name,
+                        meal_slot=meal_slot,
+                        budget=budget,
+                        max_results=3,
+                    )
+                    for i, p in enumerate(places):
+                        rec_id = f"rest_d{day_num}_{meal_slot}_{i + 1}"
+                        recommendations.append(RestaurantRecommendation(
+                            id=rec_id,
+                            name=p.get("name", f"Restaurant {i + 1}"),
+                            rating=p.get("rating"),
+                            cuisine_type=p.get("primary_type"),
+                            price_range=p.get("price_range", "$$"),
+                            url=p.get("url"),
+                            description=(p.get("description") or "")[:200],
+                            near_location=loc_name,
+                            meal_slot=meal_slot,
+                            day=day_num,
+                            image_url=p.get("image_url"),
+                        ))
+                except Exception as e:
+                    logger.warning(f"Google Places search failed for {loc_name} {meal_slot}: {e}")
+
+        if recommendations:
+            logger.info(f"Google Places returned {len(recommendations)} restaurant recommendations total")
+            return recommendations
+
+        # ── Fallback: Tavily web search (if Google Places not configured) ──
+        logger.info("No Google Places results — falling back to Tavily web search")
+        try:
+            from ...tools.web_search import get_web_search_tool
+            from ...config import settings
+
+            web_search = get_web_search_tool(settings.TAVILY_API_KEY)
+            if not web_search.enabled:
+                logger.warning("Web search not enabled, skipping restaurant recommendations")
+                return recommendations
+
+            import re as _re
+
+            for day_num in range(1, num_days + 1):
+                loc_idx = min(day_num - 1, len(locations) - 1)
+                loc = locations[loc_idx]
+                loc_name = loc.get("name", "Unknown")
+
+                for meal_slot in ["breakfast", "lunch", "dinner"]:
+                    budget_hint = f"{budget} " if budget else ""
+                    query = f"best {budget_hint}{meal_slot} restaurants near {loc_name} Sri Lanka reviews ratings"
+
+                    try:
+                        results = web_search.search(
+                            query,
+                            include_domains=["tripadvisor.com", "google.com", "yelp.com", "lonelyplanet.com"],
+                        )
+
+                        for i, r in enumerate(results.get("results", [])[:3]):
+                            rec_id = f"rest_d{day_num}_{meal_slot}_{i + 1}"
+                            content = r.get("content", "")
+
+                            rating = None
+                            rating_match = _re.search(r"(\d\.?\d?)\s*/?\s*5", content)
+                            if rating_match:
+                                try:
+                                    rating = float(rating_match.group(1))
+                                except ValueError:
+                                    pass
+
+                            price_range = "$$"
+                            content_lower = content.lower()
+                            if any(w in content_lower for w in ["luxury", "fine dining", "$$$", "high-end"]):
+                                price_range = "$$$"
+                            elif any(w in content_lower for w in ["budget", "cheap", "street food", "affordable"]):
+                                price_range = "$"
+
+                            recommendations.append(RestaurantRecommendation(
+                                id=rec_id,
+                                name=r.get("title", f"Restaurant {i + 1}"),
+                                rating=rating,
+                                cuisine_type=None,
+                                price_range=price_range,
+                                url=r.get("url"),
+                                description=content[:200].strip() + ("..." if len(content) > 200 else ""),
+                                near_location=loc_name,
+                                meal_slot=meal_slot,
+                                day=day_num,
+                            ))
+                    except Exception as e:
+                        logger.warning(f"Restaurant search failed for {loc_name} {meal_slot}: {e}")
+        except ImportError:
+            logger.warning("Web search tool not available for restaurant recommendations")
+
+    except Exception as e:
+        logger.warning(f"Restaurant recommendation computation failed: {e}")
+
+    return recommendations
+
+
+async def _compute_accommodation_recommendations(
+    locations: List[Dict[str, Any]],
+    start_date: str,
+    end_date: str,
+    budget: Optional[str] = None,
+) -> List[AccommodationRecommendation]:
+    """
+    Search for top 3 accommodation options near each overnight location.
+    Only runs for 2+ day trips (single-day trips return empty list).
+
+    Returns a flat list of AccommodationRecommendation grouped by check_in_day.
+    """
+    recommendations: List[AccommodationRecommendation] = []
+
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d") if isinstance(start_date, str) else start_date
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d") if isinstance(end_date, str) else end_date
+    num_days = max(1, (end_dt - start_dt).days + 1)
+
+    if num_days < 2:
+        return recommendations  # No overnight needed for single-day trips
+
+    try:
+        from ...tools.web_search import get_web_search_tool
+        from ...config import settings
+
+        web_search = get_web_search_tool(settings.TAVILY_API_KEY)
+        if not web_search.enabled:
+            logger.warning("Web search not enabled, skipping accommodation recommendations")
+            return recommendations
+
+        import re as _re
+
+        for day_num in range(1, num_days):  # No accommodation needed for last day
+            loc_idx = min(day_num - 1, len(locations) - 1)
+            loc = locations[loc_idx]
+            loc_name = loc.get("name", "Unknown")
+
+            budget_hint = f"{budget} " if budget else ""
+            query = f"best {budget_hint}hotels resorts near {loc_name} Sri Lanka booking reviews ratings"
+
+            try:
+                results = web_search.search(
+                    query,
+                    include_domains=["booking.com", "tripadvisor.com", "agoda.com", "hotels.com"],
+                )
+
+                for i, r in enumerate(results.get("results", [])[:3]):
+                    rec_id = f"hotel_d{day_num}_{i + 1}"
+                    content = r.get("content", "")
+
+                    # Extract rating heuristic
+                    rating = None
+                    rating_match = _re.search(r"(\d\.?\d?)\s*/?\s*5", content)
+                    if rating_match:
+                        try:
+                            rating = float(rating_match.group(1))
+                        except ValueError:
+                            pass
+
+                    # Extract price range heuristic
+                    price_range = "$$"
+                    content_lower = content.lower()
+                    if any(w in content_lower for w in ["luxury", "5-star", "$$$", "premium"]):
+                        price_range = "$$$"
+                    elif any(w in content_lower for w in ["budget", "hostel", "cheap", "backpacker"]):
+                        price_range = "$"
+
+                    # Determine accommodation type
+                    acc_type = "hotel"
+                    if "resort" in content_lower:
+                        acc_type = "resort"
+                    elif any(w in content_lower for w in ["guesthouse", "guest house", "homestay"]):
+                        acc_type = "guesthouse"
+
+                    recommendations.append(AccommodationRecommendation(
+                        id=rec_id,
+                        name=r.get("title", f"Hotel {i + 1}"),
+                        rating=rating,
+                        price_range=price_range,
+                        url=r.get("url"),
+                        description=content[:200].strip() + ("..." if len(content) > 200 else ""),
+                        near_location=loc_name,
+                        check_in_day=day_num,
+                        type=acc_type,
+                    ))
+            except Exception as e:
+                logger.warning(f"Accommodation search failed near {loc_name}: {e}")
+
+    except ImportError:
+        logger.warning("Web search tool not available for accommodation recommendations")
+    except Exception as e:
+        logger.warning(f"Accommodation recommendation computation failed: {e}")
+
+    return recommendations
+
+
 def _get_cultural_tips_for_location(location_name: str) -> List[Dict[str, str]]:
     """Get relevant cultural tips based on location type."""
     tips = []
@@ -561,6 +1165,30 @@ def build_plan_context(state: GraphState) -> str:
                 parts.append(f"  WARNING: {w}")
         parts.append("")
 
+    # Weather data (deep injection)
+    weather_data = state.get("_weather_data", {})
+    if weather_data and isinstance(weather_data, dict):
+        parts.append("=== WEATHER FORECASTS (OpenWeatherMap API — Real-Time) ===")
+        parts.append("USE THIS WEATHER DATA for weather-aware routing!")
+        for loc_name, wd in weather_data.items():
+            if not isinstance(wd, dict):
+                continue
+            parts.append(f"\n{loc_name}:")
+            parts.append(f"  Summary: {wd.get('summary', 'N/A')}")
+            parts.append(f"  Temperature: {wd.get('temperature_celsius', 'N/A')}°C")
+            parts.append(f"  Rain Probability: {wd.get('rain_probability', 0)}%")
+            parts.append(f"  Wind: {wd.get('wind_speed_kmh', 0)} km/h")
+            parts.append(f"  Outdoor Suitability: {wd.get('suitability_score', 70)}%")
+            if wd.get("indoor_alternative_needed"):
+                alts = _get_indoor_alternatives(loc_name)
+                parts.append(f"  *** INDOOR ALTERNATIVES NEEDED: {', '.join(alts[:3])}")
+            if wd.get("alerts"):
+                for alert in wd["alerts"]:
+                    if isinstance(alert, dict):
+                        parts.append(f"  ALERT [{alert.get('severity', 'medium').upper()}]: {alert.get('description', '')}")
+                    parts.append(f"    → {alert.get('recommendation', '')}")
+        parts.append("")
+
     # Retrieved knowledge
     docs = state.get("retrieved_documents", [])
     if docs:
@@ -588,6 +1216,33 @@ def build_plan_context(state: GraphState) -> str:
     if constraints:
         parts.append("=== CONSTRAINT ANALYSIS ===")
         parts.append(constraints.get("recommendation", ""))
+        parts.append("")
+
+    # Selected restaurant context (for refinement with user selections)
+    tour_ctx = state.get("tour_plan_context") or {}
+    selected_restaurants = tour_ctx.get("selected_restaurant_ids")
+    restaurant_recs = state.get("restaurant_recommendations", [])
+    if selected_restaurants and restaurant_recs:
+        parts.append("=== SELECTED RESTAURANTS (include these in the plan at the correct meal times) ===")
+        for rec in restaurant_recs:
+            if rec.get("id") in selected_restaurants:
+                parts.append(f"  Day {rec.get('day', '?')} {rec.get('meal_slot', '').title()}: {rec.get('name', 'Unknown')}")
+                if rec.get("rating"):
+                    parts.append(f"    Rating: {rec['rating']}/5")
+                if rec.get("price_range"):
+                    parts.append(f"    Price: {rec['price_range']}")
+        parts.append("")
+
+    # Selected accommodation context (for refinement with user selections)
+    selected_accommodations = tour_ctx.get("selected_accommodation_ids")
+    accommodation_recs = state.get("accommodation_recommendations", [])
+    if selected_accommodations and accommodation_recs:
+        parts.append("=== SELECTED ACCOMMODATIONS (include check-in/check-out in the plan) ===")
+        for rec in accommodation_recs:
+            if rec.get("id") in selected_accommodations:
+                parts.append(f"  Night of Day {rec.get('check_in_day', '?')}: {rec.get('name', 'Unknown')} ({rec.get('type', 'hotel')})")
+                if rec.get("rating"):
+                    parts.append(f"    Rating: {rec['rating']}/5")
         parts.append("")
 
     # Existing itinerary for modifications
@@ -647,6 +1302,8 @@ def parse_llm_plan_response(
 
             # Parse cultural tips
             for tip_data in plan_data.get("cultural_tips", []):
+                if not isinstance(tip_data, dict):
+                    continue
                 cultural_tips.append(CulturalTip(
                     location=tip_data.get("location", "General"),
                     tip=tip_data.get("tip", ""),
@@ -655,10 +1312,16 @@ def parse_llm_plan_response(
 
             # Parse itinerary
             for day_data in plan_data.get("itinerary", []):
+                if not isinstance(day_data, dict):
+                    logger.warning(f"Skipping non-dict itinerary day: {type(day_data)}")
+                    continue
                 day_num = day_data.get("day", 1)
                 location = day_data.get("location", "")
 
                 for order, activity in enumerate(day_data.get("activities", [])):
+                    if not isinstance(activity, dict):
+                        logger.warning(f"Skipping non-dict activity: {type(activity)}")
+                        continue
                     slot: ItinerarySlot = {
                         "time": activity.get("time", "09:00"),
                         "location": location,
@@ -695,6 +1358,7 @@ def parse_llm_plan_response(
     return itinerary_slots, metadata, summary, cultural_tips
 
 
+@trace_node("tour_plan_generator", run_type="chain")
 async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
     """
     Tour Plan Generator Node: Generate super-accurate, personalized multi-day itineraries.
@@ -738,19 +1402,115 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
     end_date = tour_context.get("end_date", "")
     is_modification = state.get("itinerary") is not None
 
-    # Step 1: Compute precise golden hour data
-    logger.info("Computing golden hour data for each location...")
-    golden_data = _compute_golden_hour_data(locations, start_date, end_date)
+    # Steps 1-4: Compute all data in PARALLEL for performance
+    logger.info("Computing golden hour, crowd, weather, event, restaurant, and accommodation data in parallel...")
 
-    # Step 2: Compute precise crowd predictions
-    logger.info("Computing crowd predictions for each location...")
-    crowd_data = _compute_crowd_predictions(locations, start_date, end_date)
+    # Determine skip flags and budget from tour plan context
+    skip_restaurants = tour_context.get("skip_restaurants", False)
+    skip_accommodations = tour_context.get("skip_accommodations", False)
+    budget = None
+    prefs = state.get("user_preferences")
+    if prefs:
+        budget = prefs.get("budget")
 
-    # Step 3: Compute event/holiday data
-    logger.info("Computing event/holiday data...")
-    event_data = _compute_event_data(locations, start_date, end_date)
+    # Wrap sync functions for asyncio.gather
+    loop = asyncio.get_event_loop()
+    golden_future = loop.run_in_executor(None, _compute_golden_hour_data, locations, start_date, end_date)
+    crowd_future = loop.run_in_executor(None, _compute_crowd_predictions, locations, start_date, end_date)
+    event_future = loop.run_in_executor(None, _compute_event_data, locations, start_date, end_date)
+    weather_future = _compute_weather_data(locations, start_date, end_date)
 
-    # Step 4: Collect cultural tips
+    # Restaurant/accommodation search (skippable by user)
+    async def _empty_list():
+        return []
+
+    restaurant_future = (
+        _compute_restaurant_recommendations(locations, start_date, end_date, budget)
+        if not skip_restaurants else _empty_list()
+    )
+    accommodation_future = (
+        _compute_accommodation_recommendations(locations, start_date, end_date, budget)
+        if not skip_accommodations else _empty_list()
+    )
+
+    golden_data, crowd_data, event_data, weather_data, restaurant_recs, accommodation_recs = await asyncio.gather(
+        golden_future, crowd_future, event_future, weather_future,
+        restaurant_future, accommodation_future,
+        return_exceptions=True
+    )
+
+    # Handle exceptions from parallel tasks gracefully
+    if isinstance(golden_data, Exception):
+        logger.warning(f"Golden hour computation failed: {golden_data}")
+        golden_data = {}
+    if isinstance(crowd_data, Exception):
+        logger.warning(f"Crowd prediction failed: {crowd_data}")
+        crowd_data = {}
+    if isinstance(event_data, Exception):
+        logger.warning(f"Event data failed: {event_data}")
+        event_data = {}
+    if isinstance(weather_data, Exception):
+        logger.warning(f"Weather data failed: {weather_data}")
+        weather_data = {}
+    if isinstance(restaurant_recs, Exception):
+        logger.warning(f"Restaurant recommendations failed: {restaurant_recs}")
+        restaurant_recs = []
+    if isinstance(accommodation_recs, Exception):
+        logger.warning(f"Accommodation recommendations failed: {accommodation_recs}")
+        accommodation_recs = []
+
+    logger.info(f"Found {len(restaurant_recs)} restaurant and {len(accommodation_recs)} accommodation recommendations")
+
+    # ─── HITL Restaurant Selection ────────────────────────────────
+    # If we found restaurants, the user hasn't selected yet, and
+    # restaurants aren't being skipped, pause the graph and let the
+    # user pick one before generating the full plan.
+    # ──────────────────────────────────────────────────────────────
+    already_selected = (
+        state.get("selected_restaurant_ids")
+        or (tour_context.get("selected_restaurant_ids"))
+    )
+    if (
+        restaurant_recs
+        and len(restaurant_recs) >= 3
+        and not skip_restaurants
+        and not already_selected
+        and not is_modification
+    ):
+        selection_cards = _build_restaurant_selection_cards(restaurant_recs)
+        if selection_cards:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                f"Restaurant HITL triggered — presenting {len(selection_cards)} "
+                f"restaurant cards for user selection"
+            )
+            return {
+                **state,
+                "pending_user_selection": True,
+                "pending_restaurant_selection": True,
+                "selection_cards": selection_cards,
+                "restaurant_recommendations": restaurant_recs,
+                "accommodation_recommendations": accommodation_recs,
+                "generated_response": (
+                    "🍽️ I found some great restaurants near your destinations! "
+                    "Please select one to include in your tour plan."
+                ),
+                "final_response": (
+                    "🍽️ I found some great restaurants near your destinations! "
+                    "Please select one to include in your tour plan."
+                ),
+                "step_results": [{
+                    "node": "tour_plan_generate",
+                    "status": "pending",
+                    "summary": (
+                        f"Computed {len(restaurant_recs)} restaurants — "
+                        f"awaiting user selection from top {len(selection_cards)}"
+                    ),
+                    "duration_ms": duration_ms,
+                }],
+            }
+
+    # Collect cultural tips
     all_cultural_tips: List[CulturalTip] = []
     for loc in locations:
         name = loc.get("name", "Unknown")
@@ -768,6 +1528,7 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
         "_golden_hour_data": golden_data,
         "_crowd_data": crowd_data,
         "_event_data": event_data,
+        "_weather_data": weather_data,
     }
 
     # Build comprehensive context for LLM
@@ -843,6 +1604,18 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
             duration_ms = (time.time() - start_time) * 1000
 
             if itinerary:
+                # Build the visual-ready FinalItinerary
+                final_itinerary_obj = _build_final_itinerary(
+                    itinerary=itinerary,
+                    locations=locations,
+                    warnings=warnings,
+                    tips=tips,
+                    constraint_violations=state.get("constraint_violations", []),
+                    weather_data=weather_data,
+                    event_data=event_data,
+                    summary=summary,
+                )
+
                 # Format a human-readable response
                 final_response = f"🗺️ **Your {metadata['total_days']}-Day Sri Lanka Adventure**\n\n"
                 final_response += f"📍 Covering {metadata['total_locations']} amazing locations\n"
@@ -854,7 +1627,16 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
                 if metadata.get("preference_match_explanation"):
                     final_response += f"🎯 {metadata['preference_match_explanation']}\n\n"
 
-                final_response += "I've optimized your itinerary using precise golden hour calculations and real-time crowd predictions. "
+                # Add weather summary to response
+                weather_warnings = [
+                    f"🌧️ {name}: {wd.get('summary', '')}"
+                    for name, wd in weather_data.items()
+                    if isinstance(wd, dict) and wd.get("indoor_alternative_needed")
+                ]
+                if weather_warnings:
+                    final_response += "**Weather Alerts:**\n" + "\n".join(weather_warnings) + "\n\n"
+
+                final_response += "I've optimized your itinerary using precise golden hour calculations, real-time crowd predictions, and live weather forecasts. "
                 if is_modification:
                     final_response += "I've made the changes you requested while keeping the rest of your plan intact. "
                 final_response += "Check out the detailed plan below! 👇"
@@ -866,10 +1648,14 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
                     "generated_response": final_response,
                     "final_response": final_response,
                     "cultural_tips": all_cultural_tips,
+                    "weather_data": weather_data,
+                    "final_itinerary": final_itinerary_obj,
+                    "restaurant_recommendations": restaurant_recs,
+                    "accommodation_recommendations": accommodation_recs,
                     "step_results": [{
                         "node": "tour_plan_generate",
                         "status": "success",
-                        "summary": f"Generated {metadata['total_days']}-day plan with {len(itinerary)} activities, {len(all_cultural_tips)} cultural tips",
+                        "summary": f"Generated {metadata['total_days']}-day plan with {len(itinerary)} activities, {len(all_cultural_tips)} cultural tips, {len(restaurant_recs)} restaurants, {len(accommodation_recs)} hotels",
                         "duration_ms": duration_ms,
                     }],
                 }
@@ -880,6 +1666,8 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
                     "generated_response": response_text,
                     "final_response": response_text,
                     "cultural_tips": all_cultural_tips,
+                    "restaurant_recommendations": restaurant_recs,
+                    "accommodation_recommendations": accommodation_recs,
                     "step_results": [{
                         "node": "tour_plan_generate",
                         "status": "warning",
@@ -933,6 +1721,8 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
         "itinerary": basic_itinerary,
         "tour_plan_metadata": basic_metadata,
         "cultural_tips": all_cultural_tips,
+        "restaurant_recommendations": restaurant_recs,
+        "accommodation_recommendations": accommodation_recs,
         "generated_response": "I've created a basic tour plan for your selected locations.",
         "final_response": "I've created a basic tour plan for your selected locations.",
         "step_results": [{
@@ -942,6 +1732,177 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
             "duration_ms": duration_ms,
         }],
     }
+
+
+def _build_final_itinerary(
+    itinerary: List[ItinerarySlot],
+    locations: List[Dict[str, Any]],
+    warnings: List[str],
+    tips: List[str],
+    constraint_violations: List[Dict[str, Any]],
+    weather_data: Dict[str, Any],
+    event_data: Dict[str, Any],
+    summary: str,
+) -> FinalItinerary:
+    """
+    Build the visual-ready FinalItinerary JSON for maps integration.
+
+    Creates sequence_ids, coordinates, route_polyline, and contextual_notes
+    from the raw itinerary slots and location data.
+    """
+    # Build location coordinate lookup
+    loc_coords = {}
+    for loc in locations:
+        name = loc.get("name", "")
+        loc_coords[name] = {
+            "lat": loc.get("latitude", 0),
+            "lng": loc.get("longitude", 0),
+        }
+
+    # Build stops with sequence_id and coordinates
+    stops: List[FinalItineraryStop] = []
+    route_coords: List[RouteCoordinate] = []
+    seen_locations_for_route = []
+    seq_id = 0
+
+    for slot in itinerary:
+        seq_id += 1
+        loc_name = slot.get("location", "")
+        coords = loc_coords.get(loc_name, {"lat": 0, "lng": 0})
+
+        # Weather summary for this location
+        loc_weather = weather_data.get(loc_name, {})
+        weather_summary = loc_weather.get("summary") if isinstance(loc_weather, dict) else None
+
+        # ------------------------------------------------------------------
+        # Visual-Ready Output: derive map_marker_icon + one-line summary
+        # ------------------------------------------------------------------
+        activity_text = (slot.get("activity") or "").lower()
+        icon_slot = (slot.get("icon") or "").lower()
+        _marker_icon = "Attraction"  # default
+        if any(k in activity_text for k in ("hotel", "check-in", "check in", "accommodation", "stay")):
+            _marker_icon = "Hotel"
+        elif any(k in activity_text for k in ("restaurant", "food", "lunch", "dinner", "breakfast", "dining", "eat")):
+            _marker_icon = "Food"
+        elif any(k in activity_text for k in ("bar", "nightlife", "pub", "club", "party", "drink")):
+            _marker_icon = "Party"
+        elif any(k in activity_text for k in ("temple", "kovil", "mosque", "church", "shrine", "dagoba", "stupa")):
+            _marker_icon = "Temple"
+        elif any(k in activity_text for k in ("nature", "hike", "trek", "waterfall", "forest", "safari", "wildlife", "beach", "lake")):
+            _marker_icon = "Nature"
+        elif any(k in activity_text for k in ("photo", "camera", "sunrise", "sunset", "golden hour")):
+            _marker_icon = "Camera"
+        elif any(k in icon_slot for k in ("transport", "drive", "travel", "transfer")):
+            _marker_icon = "Transport"
+
+        _visual_summary = f"{slot.get('activity', loc_name)}"[:60]
+
+        stop: FinalItineraryStop = {
+            "sequence_id": seq_id,
+            "day": slot.get("day", 1),
+            "time": slot.get("time", "09:00"),
+            "location": loc_name,
+            "activity": slot.get("activity", ""),
+            "duration_minutes": slot.get("duration_minutes", 60),
+            "coordinates": coords,
+            "crowd_prediction": slot.get("crowd_prediction", 50),
+            "lighting_quality": slot.get("lighting_quality", "good"),
+            "weather_summary": weather_summary,
+            "icon": slot.get("icon"),
+            "highlight": slot.get("highlight", False),
+            "ai_insight": slot.get("ai_insight"),
+            "cultural_tip": slot.get("cultural_tip"),
+            "ethical_note": slot.get("ethical_note"),
+            "best_photo_time": slot.get("best_photo_time"),
+            "notes": slot.get("notes"),
+            "visual_assets": {
+                "map_marker_icon": _marker_icon,
+                "summary": _visual_summary,
+            },
+        }
+        stops.append(stop)
+
+        # Build route polyline (one coordinate per unique location in order)
+        if loc_name not in seen_locations_for_route:
+            seen_locations_for_route.append(loc_name)
+            route_coords.append(RouteCoordinate(
+                lat=coords["lat"],
+                lng=coords["lng"],
+                location_name=loc_name,
+                sequence_id=len(route_coords) + 1,
+            ))
+
+    # Build contextual notes from constraints, weather, and events
+    contextual_notes: List[ContextualNote] = []
+    note_seq = 0
+
+    # From constraint violations
+    for violation in (constraint_violations or []):
+        note_seq += 1
+        severity_map = {"low": "info", "medium": "warning", "high": "warning", "critical": "critical"}
+        contextual_notes.append(ContextualNote(
+            sequence_id=note_seq,
+            location_name=violation.get("constraint_type", "general"),
+            note_type=violation.get("constraint_type", "general"),
+            message=f"{violation.get('description', '')} — {violation.get('suggestion', '')}",
+            severity=severity_map.get(violation.get("severity", "medium"), "warning"),
+        ))
+
+    # From weather alerts
+    for loc_name, wd in weather_data.items():
+        if not isinstance(wd, dict):
+            continue
+        if wd.get("indoor_alternative_needed"):
+            note_seq += 1
+            contextual_notes.append(ContextualNote(
+                sequence_id=note_seq,
+                location_name=loc_name,
+                note_type="weather_alert",
+                message=f"Heavy rain expected at {loc_name} (rain probability {wd.get('rain_probability', 0)}%). Indoor alternatives recommended.",
+                severity="warning",
+            ))
+        for alert in wd.get("alerts", []):
+            if isinstance(alert, dict) and alert.get("severity") in ("high", "critical"):
+                note_seq += 1
+                contextual_notes.append(ContextualNote(
+                    sequence_id=note_seq,
+                    location_name=loc_name,
+                    note_type="weather_alert",
+                    message=alert.get("description", ""),
+                    severity="critical" if alert.get("severity") == "critical" else "warning",
+                ))
+
+    # From Poya days
+    for poya_date in event_data.get("poya_days", []):
+        note_seq += 1
+        contextual_notes.append(ContextualNote(
+            sequence_id=note_seq,
+            location_name="All Locations",
+            note_type="poya_warning",
+            message=f"Poya day on {poya_date} — No alcohol sales. Modest dress required at all sites.",
+            severity="warning",
+        ))
+
+    # Calculate total distance
+    total_dist = 0.0
+    for i in range(1, len(route_coords)):
+        prev = route_coords[i - 1]
+        curr = route_coords[i]
+        total_dist += calculate_distance(prev["lat"], prev["lng"], curr["lat"], curr["lng"])
+
+    # Count unique days
+    total_days = len(set(s["day"] for s in stops)) if stops else 1
+
+    return FinalItinerary(
+        stops=stops,
+        route_polyline=route_coords,
+        contextual_notes=contextual_notes,
+        total_distance_km=round(total_dist, 1),
+        total_days=total_days,
+        summary=summary,
+        warnings=warnings,
+        tips=tips,
+    )
 
 
 def route_to_plan_generator(state: GraphState) -> bool:

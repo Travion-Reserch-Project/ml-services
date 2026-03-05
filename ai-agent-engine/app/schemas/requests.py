@@ -280,6 +280,22 @@ class TourPlanGenerateRequest(BaseModel):
         None,
         description="Previous conversation messages for plan refinement context"
     )
+    selected_restaurant_ids: Optional[List[str]] = Field(
+        None,
+        description="IDs of restaurants the user selected from recommendations (e.g., ['rest_d1_lunch_2'])"
+    )
+    selected_accommodation_ids: Optional[List[str]] = Field(
+        None,
+        description="IDs of accommodations the user selected from recommendations (e.g., ['hotel_d1_2'])"
+    )
+    skip_restaurants: Optional[bool] = Field(
+        None,
+        description="If true, skip restaurant recommendations entirely"
+    )
+    skip_accommodations: Optional[bool] = Field(
+        None,
+        description="If true, skip accommodation recommendations entirely"
+    )
 
     class Config:
         json_schema_extra = {
@@ -531,6 +547,62 @@ class ClearChatHistoryRequest(BaseModel):
     user_id: str = Field(
         ...,
         description="User ID for verification"
+    )
+
+
+# =============================================================================
+# ADVANCED SEARCH SELECTION REQUEST (HITL)
+# =============================================================================
+
+class SelectionRequest(BaseModel):
+    """
+    Request model for the Human-in-the-Loop selection endpoint.
+
+    After the Advanced Multi-Step Search returns candidates with
+    `pending_user_selection=True`, the mobile app sends the user's
+    chosen candidate ID here to resume the paused LangGraph.
+    """
+    thread_id: str = Field(
+        ...,
+        description="The thread_id returned by the original search / tour-plan call"
+    )
+    selected_candidate_id: str = Field(
+        ...,
+        description="The `id` of the SearchCandidate the user selected"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for thread scoping (same as original request)"
+    )
+
+
+# =============================================================================
+# WEATHER INTERRUPT RESUME REQUEST (HITL)
+# =============================================================================
+
+class WeatherResumeRequest(BaseModel):
+    """
+    Request model for the Weather Interrupt resume endpoint.
+
+    After the Shadow Monitor detects severe weather and returns
+    ``interrupt_reason="USER_PROMPT_REQUIRED"`` with weather prompt
+    options, the mobile app sends the user's choice here to resume
+    the paused LangGraph.
+    """
+    thread_id: str = Field(
+        ...,
+        description="The thread_id returned by the original tour-plan call"
+    )
+    user_weather_choice: str = Field(
+        ...,
+        description=(
+            "The `id` of the weather option the user selected. "
+            "One of: 'switch_indoor', 'reschedule', 'keep'"
+        )
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for thread scoping (same as original request)"
     )
 
 
