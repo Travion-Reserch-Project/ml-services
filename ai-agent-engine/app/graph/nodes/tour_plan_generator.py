@@ -659,6 +659,189 @@ def _build_restaurant_selection_cards(
     return cards
 
 
+def _build_preference_selection_cards() -> List[Dict[str, Any]]:
+    """
+    Build HITL cards asking the user whether they want dining,
+    accommodation, both, or none in their tour plan.
+    """
+    return [
+        {
+            "card_id": "pref_dining",
+            "title": "🍽️ Dining Only",
+            "subtitle": "Include restaurant recommendations",
+            "badge": "Restaurants",
+            "image_url": None,
+            "rating": None,
+            "price_range": None,
+            "description": (
+                "I'll find the best local restaurants near your "
+                "destinations and include them in your tour plan."
+            ),
+            "tags": ["Restaurants", "Local Cuisine"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+        {
+            "card_id": "pref_accommodation",
+            "title": "🏨 Stays Only",
+            "subtitle": "Include hotel & villa recommendations",
+            "badge": "Hotels & Villas",
+            "image_url": None,
+            "rating": None,
+            "price_range": None,
+            "description": (
+                "I'll find the best hotels, resorts, and villas "
+                "near your overnight locations."
+            ),
+            "tags": ["Hotels", "Villas", "Resorts"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+        {
+            "card_id": "pref_both",
+            "title": "🍽️🏨 Both",
+            "subtitle": "Restaurants & accommodations",
+            "badge": "Recommended",
+            "image_url": None,
+            "rating": None,
+            "price_range": None,
+            "description": (
+                "Get the complete experience — I'll recommend both "
+                "restaurants and accommodations tailored to your trip."
+            ),
+            "tags": ["Full Package"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+        {
+            "card_id": "pref_none",
+            "title": "⏩ Activities Only",
+            "subtitle": "Just sightseeing & activities",
+            "badge": None,
+            "image_url": None,
+            "rating": None,
+            "price_range": None,
+            "description": (
+                "Generate a tour plan focused on activities and "
+                "sightseeing only — no dining or accommodation."
+            ),
+            "tags": ["Activities Only"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+    ]
+
+
+def _build_budget_selection_cards(dining_preference: str) -> List[Dict[str, Any]]:
+    """Build HITL cards asking the user about their budget range."""
+    target = {
+        "dining": "restaurants",
+        "accommodation": "accommodations",
+        "both": "restaurants & accommodations",
+    }.get(dining_preference, "options")
+
+    return [
+        {
+            "card_id": "budget_low",
+            "title": "💰 Budget Friendly",
+            "subtitle": f"Affordable {target}",
+            "badge": "Budget",
+            "image_url": None,
+            "rating": None,
+            "price_range": "$",
+            "description": (
+                "Budget-friendly options with great quality. "
+                "Local eateries, street food, and comfortable guesthouses."
+            ),
+            "tags": ["Affordable", "Local", "Value"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+        {
+            "card_id": "budget_medium",
+            "title": "💎 Mid-Range",
+            "subtitle": "Quality & comfort",
+            "badge": "Popular",
+            "image_url": None,
+            "rating": None,
+            "price_range": "$$",
+            "description": (
+                "Well-rated restaurants and comfortable hotels. "
+                "The sweet spot of quality and value."
+            ),
+            "tags": ["Comfortable", "Quality", "Popular"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+        {
+            "card_id": "budget_high",
+            "title": "👑 Premium",
+            "subtitle": "Luxury experiences",
+            "badge": "Luxury",
+            "image_url": None,
+            "rating": None,
+            "price_range": "$$$",
+            "description": (
+                "Top-rated fine dining and luxury resorts. "
+                "Premium experiences for a memorable trip."
+            ),
+            "tags": ["Luxury", "Fine Dining", "Premium"],
+            "distance_km": None,
+            "vibe_match_score": None,
+        },
+    ]
+
+
+def _build_accommodation_selection_cards(
+    accommodation_recs: List[AccommodationRecommendation],
+) -> List[Dict[str, Any]]:
+    """
+    Build mobile-ready selection cards for the top 3 accommodations.
+    Sorts by rating (highest first), deduplicates by name.
+    """
+    if not accommodation_recs:
+        return []
+
+    seen_names: set = set()
+    unique_recs: List[AccommodationRecommendation] = []
+    for rec in sorted(
+        accommodation_recs, key=lambda r: r.get("rating") or 0, reverse=True
+    ):
+        name = rec.get("name", "")
+        if name not in seen_names:
+            seen_names.add(name)
+            unique_recs.append(rec)
+
+    top = unique_recs[:3]
+    cards: List[Dict[str, Any]] = []
+    badges = ["Top Pick", "Best Value", "Guest Favourite"]
+
+    for idx, rec in enumerate(top):
+        acc_type = (rec.get("type") or "hotel").title()
+        tags = [acc_type]
+        if rec.get("near_location"):
+            tags.append(f"Near {rec['near_location']}")
+
+        cards.append({
+            "card_id": rec["id"],
+            "title": rec["name"],
+            "subtitle": (
+                f"{acc_type} near {rec.get('near_location', '')} — "
+                f"Night {rec.get('check_in_day', 1)}"
+            ),
+            "badge": badges[idx] if idx < len(badges) else None,
+            "image_url": rec.get("image_url"),
+            "rating": rec.get("rating"),
+            "price_range": rec.get("price_range"),
+            "description": rec.get("description", ""),
+            "tags": tags,
+            "distance_km": None,
+            "vibe_match_score": None,
+        })
+
+    return cards
+
+
 # ── Google Places restaurant cache (4-hour TTL, avoids redundant API calls) ──
 import hashlib as _hashlib
 
@@ -1386,7 +1569,6 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
     if not tour_context:
         logger.warning("No tour plan context found")
         return {
-            **state,
             "error": "No tour plan context provided",
             "final_response": "I couldn't generate a tour plan. Please provide locations and dates.",
             "step_results": [{"node": "tour_plan_generate", "status": "error", "summary": "No tour plan context provided", "duration_ms": 0}],
@@ -1402,16 +1584,87 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
     end_date = tour_context.get("end_date", "")
     is_modification = state.get("itinerary") is not None
 
-    # Steps 1-4: Compute all data in PARALLEL for performance
-    logger.info("Computing golden hour, crowd, weather, event, restaurant, and accommodation data in parallel...")
+    # ── Multi-Step HITL: ask preferences before expensive computation ──
+    dining_preference = tour_context.get("dining_preference")
+    budget_preference = tour_context.get("budget_preference")
 
-    # Determine skip flags and budget from tour plan context
+    # HITL Step 1: Dining / Accommodation / Both / None
+    if not dining_preference and not is_modification:
+        cards = _build_preference_selection_cards()
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info("HITL Step 1 — asking dining/accommodation preferences")
+        return {
+            "pending_user_selection": True,
+            "pending_restaurant_selection": True,
+            "selection_cards": cards,
+            "generated_response": (
+                "👋 Before I create your tour plan, would you like me to "
+                "include dining or accommodation recommendations?"
+            ),
+            "final_response": (
+                "👋 Before I create your tour plan, would you like me to "
+                "include dining or accommodation recommendations?"
+            ),
+            "step_results": [{
+                "node": "tour_plan_generate",
+                "status": "pending",
+                "summary": "Asking user about dining/accommodation preferences",
+                "duration_ms": duration_ms,
+            }],
+        }
+
+    # HITL Step 2: Budget (low / medium / high)
+    if (
+        dining_preference
+        and dining_preference != "none"
+        and not budget_preference
+        and not is_modification
+    ):
+        cards = _build_budget_selection_cards(dining_preference)
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"HITL Step 2 — asking budget (dining_preference={dining_preference})")
+        return {
+            "pending_user_selection": True,
+            "pending_restaurant_selection": True,
+            "selection_cards": cards,
+            "generated_response": (
+                "💰 Great choice! What's your budget range? "
+                "I'll find the best options that match."
+            ),
+            "final_response": (
+                "💰 Great choice! What's your budget range? "
+                "I'll find the best options that match."
+            ),
+            "step_results": [{
+                "node": "tour_plan_generate",
+                "status": "pending",
+                "summary": f"Asking budget preference (dining_preference={dining_preference})",
+                "duration_ms": duration_ms,
+            }],
+        }
+
+    # ── Determine skip flags based on dining preference ──────────
     skip_restaurants = tour_context.get("skip_restaurants", False)
     skip_accommodations = tour_context.get("skip_accommodations", False)
-    budget = None
-    prefs = state.get("user_preferences")
-    if prefs:
-        budget = prefs.get("budget")
+
+    if dining_preference == "none":
+        skip_restaurants = True
+        skip_accommodations = True
+    elif dining_preference == "dining":
+        skip_accommodations = True
+    elif dining_preference == "accommodation":
+        skip_restaurants = True
+    # "both" → use handler-set skip flags from previous passes
+
+    # Use HITL budget, fallback to user_preferences
+    budget = budget_preference
+    if not budget:
+        prefs = state.get("user_preferences")
+        if prefs:
+            budget = prefs.get("budget")
+
+    # Steps 1-4: Compute all data in PARALLEL for performance
+    logger.info("Computing golden hour, crowd, weather, event, restaurant, and accommodation data in parallel...")
 
     # Wrap sync functions for asyncio.gather
     loop = asyncio.get_event_loop()
@@ -1461,21 +1714,18 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
 
     logger.info(f"Found {len(restaurant_recs)} restaurant and {len(accommodation_recs)} accommodation recommendations")
 
-    # ─── HITL Restaurant Selection ────────────────────────────────
-    # If we found restaurants, the user hasn't selected yet, and
-    # restaurants aren't being skipped, pause the graph and let the
-    # user pick one before generating the full plan.
-    # ──────────────────────────────────────────────────────────────
-    already_selected = (
+    # ─── HITL Step 3: Restaurant Selection ────────────────────────
+    already_selected_restaurants = (
         state.get("selected_restaurant_ids")
-        or (tour_context.get("selected_restaurant_ids"))
+        or tour_context.get("selected_restaurant_ids")
     )
     if (
         restaurant_recs
         and len(restaurant_recs) >= 3
         and not skip_restaurants
-        and not already_selected
+        and not already_selected_restaurants
         and not is_modification
+        and dining_preference in ("dining", "both")
     ):
         selection_cards = _build_restaurant_selection_cards(restaurant_recs)
         if selection_cards:
@@ -1485,7 +1735,6 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
                 f"restaurant cards for user selection"
             )
             return {
-                **state,
                 "pending_user_selection": True,
                 "pending_restaurant_selection": True,
                 "selection_cards": selection_cards,
@@ -1505,6 +1754,50 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
                     "summary": (
                         f"Computed {len(restaurant_recs)} restaurants — "
                         f"awaiting user selection from top {len(selection_cards)}"
+                    ),
+                    "duration_ms": duration_ms,
+                }],
+            }
+
+    # ─── HITL Step 4: Accommodation Selection ─────────────────────
+    already_selected_accommodations = (
+        state.get("selected_accommodation_ids")
+        or tour_context.get("selected_accommodation_ids")
+    )
+    if (
+        accommodation_recs
+        and len(accommodation_recs) >= 1
+        and not skip_accommodations
+        and not already_selected_accommodations
+        and not is_modification
+        and dining_preference in ("accommodation", "both")
+    ):
+        accom_cards = _build_accommodation_selection_cards(accommodation_recs)
+        if accom_cards:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                f"Accommodation HITL triggered — presenting {len(accom_cards)} "
+                f"accommodation cards for user selection"
+            )
+            return {
+                "pending_user_selection": True,
+                "pending_restaurant_selection": True,
+                "selection_cards": accom_cards,
+                "accommodation_recommendations": accommodation_recs,
+                "generated_response": (
+                    "🏨 Here are some great places to stay near your "
+                    "destinations! Pick one to include in your plan."
+                ),
+                "final_response": (
+                    "🏨 Here are some great places to stay near your "
+                    "destinations! Pick one to include in your plan."
+                ),
+                "step_results": [{
+                    "node": "tour_plan_generate",
+                    "status": "pending",
+                    "summary": (
+                        f"Computed {len(accommodation_recs)} accommodations — "
+                        f"awaiting user selection from top {len(accom_cards)}"
                     ),
                     "duration_ms": duration_ms,
                 }],
@@ -1642,7 +1935,6 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
                 final_response += "Check out the detailed plan below! 👇"
 
                 return {
-                    **state,
                     "itinerary": itinerary,
                     "tour_plan_metadata": metadata,
                     "generated_response": final_response,
@@ -1662,7 +1954,6 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
             else:
                 # Fallback response
                 return {
-                    **state,
                     "generated_response": response_text,
                     "final_response": response_text,
                     "cultural_tips": all_cultural_tips,
@@ -1717,7 +2008,6 @@ IMPORTANT: Output ONLY valid JSON. Start with {{ and end with }}. No extra text.
     }
 
     return {
-        **state,
         "itinerary": basic_itinerary,
         "tour_plan_metadata": basic_metadata,
         "cultural_tips": all_cultural_tips,
