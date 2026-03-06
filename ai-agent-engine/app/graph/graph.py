@@ -622,6 +622,7 @@ class TravionAgentGraph:
                 "selected_search_candidate": final_state.get("selected_search_candidate"),
                 # MCP Search — Selection Cards & Map-Ready Itinerary
                 "selection_cards": final_state.get("selection_cards"),
+                "prompt_text": final_state.get("prompt_text"),
                 "mcp_search_metadata": final_state.get("mcp_search_metadata"),
                 "map_ready_itinerary": final_state.get("map_ready_itinerary"),
                 # Weather Interrupt — USER_PROMPT_REQUIRED
@@ -696,6 +697,7 @@ class TravionAgentGraph:
                 "pending_user_selection": final_state.get("pending_user_selection", False),
                 # MCP — Map-Ready Itinerary & Selection Cards
                 "selection_cards": final_state.get("selection_cards"),
+                "prompt_text": final_state.get("prompt_text"),
                 "mcp_search_metadata": final_state.get("mcp_search_metadata"),
                 "map_ready_itinerary": final_state.get("map_ready_itinerary"),
                 # Weather interrupt fields (in case another interrupt fires)

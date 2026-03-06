@@ -549,6 +549,7 @@ class GraphState(TypedDict):
 
     # MCP Search — Selection Cards & Metadata
     selection_cards: Optional[List[Dict[str, Any]]]
+    prompt_text: Optional[str]
     mcp_search_metadata: Optional[Dict[str, Any]]
 
     # Restaurant HITL — pause during tour plan generation for restaurant pick
@@ -650,6 +651,7 @@ def create_initial_state(
         "selected_search_candidate_id": None,
         "selected_search_candidate": None,
         "selection_cards": None,
+        "prompt_text": None,
         "mcp_search_metadata": None,
         "pending_restaurant_selection": None,
         "map_ready_itinerary": None,

@@ -739,6 +739,7 @@ def _build_tour_plan_response(result: dict, thread_id: str) -> TourPlanResponse:
         weather_prompt_options=result.get("weather_prompt_options"),
         pending_user_selection=result.get("pending_user_selection", False),
         selection_cards=result.get("selection_cards"),
+        prompt_text=result.get("prompt_text"),
         search_candidates=result.get("search_candidates"),
         mcp_search_metadata=result.get("mcp_search_metadata"),
         restaurant_recommendations=restaurant_recommendations,
@@ -1043,6 +1044,7 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
             # HITL selection fields (restaurant selection during plan generation)
             pending_user_selection=result.get("pending_user_selection", False),
             selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
             search_candidates=None,
         )
         
@@ -1225,8 +1227,9 @@ async def submit_selection(request: SelectionRequest):
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
-        # --- If the resumed graph produced a tour plan, return TourPlanResponse ---
-        if result.get("itinerary") or result.get("final_itinerary"):
+        # --- If the resumed graph produced a tour plan OR needs another HITL
+        #     selection step, return TourPlanResponse ---
+        if result.get("itinerary") or result.get("final_itinerary") or result.get("pending_user_selection"):
             itinerary = []
             for slot in (result.get("itinerary") or []):
                 itinerary.append(ItinerarySlotResponse(
@@ -1251,7 +1254,7 @@ async def submit_selection(request: SelectionRequest):
             metadata = TourPlanMetadataResponse(
                 match_score=plan_metadata.get("match_score", 85),
                 total_days=plan_metadata.get("total_days", 1),
-                total_locations=plan_metadata.get("total_locations", 0),
+                total_locations=plan_metadata.get("total_locations", 1),
                 golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
                 crowd_optimized=plan_metadata.get("crowd_optimized", True),
                 event_aware=plan_metadata.get("event_aware", True),
@@ -1261,19 +1264,11 @@ async def submit_selection(request: SelectionRequest):
             restaurant_recommendations = None
             raw_recs = result.get("restaurant_recommendations")
             if raw_recs:
+                # Field is now List[Dict] — convert any non-dict items to plain dicts
                 restaurant_recommendations = [
-                    RestaurantRecommendationResponse(
-                        id=r.get("id", ""),
-                        name=r.get("name", ""),
-                        rating=r.get("rating"),
-                        cuisine_type=r.get("cuisine_type"),
-                        price_range=r.get("price_range"),
-                        url=r.get("url"),
-                        description=r.get("description", ""),
-                        near_location=r.get("near_location", ""),
-                        meal_slot=r.get("meal_slot", "lunch"),
-                        day=r.get("day", 1),
-                    )
+                    dict(r) if isinstance(r, dict) else
+                    r.model_dump() if hasattr(r, "model_dump") else
+                    dict(r)
                     for r in raw_recs
                 ]
 
@@ -1313,6 +1308,7 @@ async def submit_selection(request: SelectionRequest):
                 restaurant_recommendations=restaurant_recommendations,
                 pending_user_selection=result.get("pending_user_selection", False),
                 selection_cards=result.get("selection_cards"),
+                prompt_text=result.get("prompt_text"),
                 weather_interrupt=result.get("weather_interrupt", False),
                 weather_prompt_message=result.get("weather_prompt_message"),
                 weather_prompt_options=result.get("weather_prompt_options"),

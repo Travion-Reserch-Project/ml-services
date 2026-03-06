@@ -340,7 +340,11 @@ class ShadowMonitor:
     def __init__(self):
         """Initialize Shadow Monitor with all sub-systems."""
         self.event_sentinel = get_event_sentinel()
-        self.crowdcast = get_crowdcast()
+        try:
+            self.crowdcast = get_crowdcast()
+        except Exception as e:
+            logger.warning(f"⚠️ CrowdCast unavailable, running in degraded mode: {e}")
+            self.crowdcast = None
         self.golden_hour = get_golden_hour_agent()
 
         # Active Guardian components (initialized lazily to handle missing API keys)
@@ -573,6 +577,12 @@ class ShadowMonitor:
         is_poya: bool = False
     ) -> Dict:
         """Check crowd predictions."""
+        if self.crowdcast is None:
+            return {
+                "crowd_prediction": {"crowd_status": "UNKNOWN", "crowd_percentage": 50},
+                "optimal_time_suggestion": None,
+                "warnings": ["CrowdCast model unavailable"]
+            }
         try:
             prediction = self.crowdcast.predict(
                 location_type,

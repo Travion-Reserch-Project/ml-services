@@ -1597,14 +1597,9 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
             "pending_user_selection": True,
             "pending_restaurant_selection": True,
             "selection_cards": cards,
-            "generated_response": (
-                "👋 Before I create your tour plan, would you like me to "
-                "include dining or accommodation recommendations?"
-            ),
-            "final_response": (
-                "👋 Before I create your tour plan, would you like me to "
-                "include dining or accommodation recommendations?"
-            ),
+            "prompt_text": "What would you like included?",
+            "generated_response": "What should I include in your tour plan?",
+            "final_response": "What should I include in your tour plan?",
             "step_results": [{
                 "node": "tour_plan_generate",
                 "status": "pending",
@@ -1627,14 +1622,9 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
             "pending_user_selection": True,
             "pending_restaurant_selection": True,
             "selection_cards": cards,
-            "generated_response": (
-                "💰 Great choice! What's your budget range? "
-                "I'll find the best options that match."
-            ),
-            "final_response": (
-                "💰 Great choice! What's your budget range? "
-                "I'll find the best options that match."
-            ),
+            "prompt_text": "What's your budget?",
+            "generated_response": "What's your budget range?",
+            "final_response": "What's your budget range?",
             "step_results": [{
                 "node": "tour_plan_generate",
                 "status": "pending",
@@ -1738,16 +1728,11 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
                 "pending_user_selection": True,
                 "pending_restaurant_selection": True,
                 "selection_cards": selection_cards,
+                "prompt_text": "Pick a restaurant",
                 "restaurant_recommendations": restaurant_recs,
                 "accommodation_recommendations": accommodation_recs,
-                "generated_response": (
-                    "🍽️ I found some great restaurants near your destinations! "
-                    "Please select one to include in your tour plan."
-                ),
-                "final_response": (
-                    "🍽️ I found some great restaurants near your destinations! "
-                    "Please select one to include in your tour plan."
-                ),
+                "generated_response": "Here are the top restaurants — pick your favourite!",
+                "final_response": "Here are the top restaurants — pick your favourite!",
                 "step_results": [{
                     "node": "tour_plan_generate",
                     "status": "pending",
@@ -1783,15 +1768,10 @@ async def tour_plan_generator_node(state: GraphState, llm=None) -> GraphState:
                 "pending_user_selection": True,
                 "pending_restaurant_selection": True,
                 "selection_cards": accom_cards,
+                "prompt_text": "Pick a place to stay",
                 "accommodation_recommendations": accommodation_recs,
-                "generated_response": (
-                    "🏨 Here are some great places to stay near your "
-                    "destinations! Pick one to include in your plan."
-                ),
-                "final_response": (
-                    "🏨 Here are some great places to stay near your "
-                    "destinations! Pick one to include in your plan."
-                ),
+                "generated_response": "Great stays near your spots — which one looks good?",
+                "final_response": "Great stays near your spots — which one looks good?",
                 "step_results": [{
                     "node": "tour_plan_generate",
                     "status": "pending",

@@ -214,6 +214,7 @@ class AccommodationRecommendationResponse(BaseModel):
     near_location: str = Field(..., description="Near which itinerary location")
     check_in_day: int = Field(..., ge=1, description="Day number for check-in")
     type: str = Field(..., description="hotel, resort, or guesthouse")
+    image_url: Optional[str] = Field(None, description="Accommodation photo URL")
 
 
 class VisualAssetResponse(BaseModel):
@@ -418,11 +419,11 @@ class TourPlanResponse(BaseModel):
         None,
         description="Reason for human-in-the-loop interrupt (e.g., constraint_interrupt, weather)"
     )
-    restaurant_recommendations: Optional[List[RestaurantRecommendationResponse]] = Field(
+    restaurant_recommendations: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="Top 3 restaurant options per meal slot. User can select or skip. Grouped by day and meal_slot."
     )
-    accommodation_recommendations: Optional[List[AccommodationRecommendationResponse]] = Field(
+    accommodation_recommendations: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="Top 3 accommodation options per overnight stay. Only for 2+ day trips. User can select or skip."
     )
@@ -450,6 +451,10 @@ class TourPlanResponse(BaseModel):
     selection_cards: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="Pre-formatted UI cards for the mobile selection UI (photo_urls, badge, vibe_match_score)"
+    )
+    prompt_text: Optional[str] = Field(
+        None,
+        description="Short header text for the mobile selection prompt (e.g. 'Pick a restaurant')"
     )
     mcp_search_metadata: Optional[Dict[str, Any]] = Field(
         None,
