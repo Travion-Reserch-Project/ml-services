@@ -73,8 +73,14 @@ USER mluser
 
 EXPOSE 8001
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=120s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD curl -f http://localhost:8001/api/health || exit 1
 
-# Download model from DagsHub (or use existing) then start app
-CMD ["sh", "-c", "python download_model.py; uvicorn app:app --host 0.0.0.0 --port 8001"]
+# Startup script to handle model downloading and app start
+CMD ["sh", "-c", "echo 'Starting Transport Service...'; \
+  if [ ! -f model/transport_model.pkl ]; then \
+    echo 'Downloading models...'; \
+    python download_model.py || echo 'Warning: Model download failed, continuing...'; \
+  fi; \
+  echo 'Starting uvicorn...'; \
+  uvicorn app:app --host 0.0.0.0 --port 8001 --workers 4"]

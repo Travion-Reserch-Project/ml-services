@@ -1,25 +1,99 @@
-version: "3.8"
+version: "3.9"
+
+# Travion ML Services - Complete Deployment Configuration
+# Includes: Transport, Safety, Weather, AI Agent Engine services
+# With health checks, resource limits, logging, and networking
 
 services:
-  # Transport Safety Risk Prediction Service
+  # =========================================================================
+  # TRANSPORT SERVICE (Port 8001)
+  # NLP + GNN-based transport recommendations
+  # =========================================================================
   transport-service:
-    build: ./transport-service
+    build:
+      context: ./transport-service
+      dockerfile: Dockerfile
     container_name: transport-service
+    image: travion/transport-service:latest
+
     ports:
       - "8001:8001"
-    volumes:
-      - ./transport-service:/app
+
     env_file:
       - .env
       - ./transport-service/.env
+
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       - SERVICE_NAME=transport-service
+      - SERVICE_PORT=8001
+      - DEBUG=${DEBUG:-false}
+
+    volumes:
+      - transport-models:/app/model
+      - transport-data:/app/data
+      - ./transport-service:/app:delegated
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 2500M
+        reservations:
+          cpus: "1.0"
+          memory: 1500M
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
     restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=transport"
+
     networks:
       - ml-services-network
 
-  # Virtual Tour Guide Service
+    depends_on:
+      - nginx
+
+  # =========================================================================
+  # SAFETY SERVICE (Port 8003)
+  # Location-based safety risk prediction
+  # =========================================================================
+  safety-service:
+    build:
+      context: ./safety-service
+      dockerfile: Dockerfile
+    container_name: safety-service
+    image: travion/safety-service:latest
+
+    ports:
+      - "8003:8003"
+
+    env_file:
+      - .env
+      - ./safety-service/.env
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - SERVICE_NAME=safety-service
+      - SERVICE_PORT=8003
+      - SAFETY_MODEL_FILE=/app/model/safety_risk_model.pkl
+
+    volumes:
+      - safety-models:/app/model
+      - ./safety-service:/app:delegated
 
   # Google Maps MCP Server (Places API adapter for restaurant/hotel search)
   mcp-google-maps:
@@ -36,12 +110,271 @@ services:
       - ml-services-network
 
   # Risk Prediction Service
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1500M
+        reservations:
+          cpus: "0.5"
+          memory: 800M
 
-  # Smart UV Assistance Service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/api/safety/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 60s
 
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+        labels: "service=safety"
+
+    networks:
+      - ml-services-network
+
+    depends_on:
+      - nginx
+
+  # =========================================================================
+  # WEATHER SERVICE (Port 8002)
+  # Computer vision + UV/weather risk assessment
+  # =========================================================================
+  weather-service:
+    build:
+      context: ./weather-service
+      dockerfile: Dockerfile
+    container_name: weather-service
+    image: travion/weather-service:latest
+
+    ports:
+      - "8002:8002"
+
+    env_file:
+      - .env
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - SERVICE_NAME=weather-service
+      - SERVICE_PORT=8002
+      - DEBUG=${DEBUG:-false}
+
+    volumes:
+      - weather-models:/app/models
+      - ./weather-service:/app:delegated
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1500M
+        reservations:
+          cpus: "0.5"
+          memory: 1000M
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 60s
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+        labels: "service=weather"
+
+    networks:
+      - ml-services-network
+
+    depends_on:
+      - nginx
+
+  # =========================================================================
+  # AI AGENT ENGINE (Port 8004)
+  # LangGraph agentic workflow + LLM integration + RAG
+  # =========================================================================
+  ai-agent-engine:
+    build:
+      context: ./ai-agent-engine
+      dockerfile: Dockerfile
+    container_name: ai-agent-engine
+    image: travion/ai-agent-engine:latest
+
+    ports:
+      - "8004:8004"
+
+    env_file:
+      - .env
+      - ./ai-agent-engine/.env
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - SERVICE_NAME=ai-agent-engine
+      - SERVICE_PORT=8004
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - CHROMA_DB_PATH=/app/vector_db
+      - DEBUG=${DEBUG:-false}
+
+    volumes:
+      - chroma-db:/app/vector_db
+      - ai-models:/app/models
+      - ./ai-agent-engine:/app:delegated
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2000M
+        reservations:
+          cpus: "0.5"
+          memory: 1200M
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/api/v1/health"]
+      interval: 45s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=ai-agent"
+
+    networks:
+      - ml-services-network
+
+    depends_on:
+      - nginx
+
+  # =========================================================================
+  # NGINX REVERSE PROXY & LOAD BALANCER (Port 80/443)
+  # =========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: travion-nginx
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+
+    environment:
+      - TZ=UTC
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+        labels: "service=nginx"
+
+    networks:
+      - ml-services-network
+
+    depends_on:
+      - transport-service
+      - safety-service
+      - weather-service
+      - ai-agent-engine
+
+# =========================================================================
+# NETWORKS
+# =========================================================================
 networks:
   ml-services-network:
     driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
+# =========================================================================
+# VOLUMES
+# =========================================================================
 volumes:
+  # Transport Service volumes
+  transport-models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./transport-service/model
   transport-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./transport-service/data
+
+  # Safety Service volumes
+  safety-models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./safety-service/model
+
+  # Weather Service volumes
+  weather-models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./weather-service/models
+
+  # AI Agent Engine volumes
+  chroma-db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./ai-agent-engine/vector_db
+  ai-models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./ai-agent-engine/models
+
+  # Nginx volumes
+  nginx-cache:
+    driver: local
