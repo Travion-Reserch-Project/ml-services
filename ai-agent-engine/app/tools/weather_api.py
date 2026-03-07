@@ -7,13 +7,17 @@ trip success against environmental variables.
 """
 
 import os
+import time
 import httpx
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from enum import Enum
 import pytz
 from functools import lru_cache
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -175,22 +179,62 @@ ACTIVITY_WEATHER_REQUIREMENTS = {
 # ============================================================================
 
 class WeatherAPIClient:
-    """Client for OpenWeatherMap API with caching and error handling"""
+    """Client for OpenWeatherMap API with TTL caching and error handling"""
+
+    # Class-level TTL cache: {cache_key: (timestamp, data)}
+    _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    _CACHE_TTL_SECONDS = 900  # 15-minute TTL
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or OPENWEATHER_API_KEY
         self.base_url = OPENWEATHER_BASE_URL
         self.timeout = 10.0  # seconds
-        # Don't raise error here - check at request time instead
 
     def is_configured(self) -> bool:
         """Check if API key is configured"""
         return bool(self.api_key)
 
+    @classmethod
+    def _get_cache_key(cls, endpoint: str, lat: float, lng: float) -> str:
+        """Build a cache key from endpoint and rounded coordinates."""
+        return f"{endpoint}:{round(lat, 2)}:{round(lng, 2)}"
+
+    @classmethod
+    def _get_cached(cls, key: str) -> Optional[Dict[str, Any]]:
+        """Return cached data if it exists and hasn't expired."""
+        entry = cls._cache.get(key)
+        if entry is None:
+            return None
+        cached_time, data = entry
+        if (time.time() - cached_time) > cls._CACHE_TTL_SECONDS:
+            del cls._cache[key]
+            return None
+        return data
+
+    @classmethod
+    def _set_cached(cls, key: str, data: Dict[str, Any]) -> None:
+        """Store data in cache with current timestamp."""
+        cls._cache[key] = (time.time(), data)
+        # Evict old entries if cache grows too large (>200 entries)
+        if len(cls._cache) > 200:
+            now = time.time()
+            expired = [k for k, (t, _) in cls._cache.items() if (now - t) > cls._CACHE_TTL_SECONDS]
+            for k in expired:
+                del cls._cache[k]
+
     async def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Make API request with error handling"""
+        """Make API request with caching and error handling"""
         if not self.api_key:
             raise ValueError("OpenWeatherMap API key not configured. Set OPENWEATHER_API_KEY env var.")
+
+        # Check cache first
+        lat = params.get("lat", 0)
+        lng = params.get("lon", 0)
+        cache_key = self._get_cache_key(endpoint, lat, lng)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            logger.debug(f"Weather cache hit for {cache_key}")
+            return cached
 
         params["appid"] = self.api_key
         params["units"] = "metric"  # Use Celsius
@@ -199,7 +243,10 @@ class WeatherAPIClient:
             try:
                 response = await client.get(f"{self.base_url}/{endpoint}", params=params)
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                # Cache the successful response
+                self._set_cached(cache_key, data)
+                return data
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
                     raise ValueError("Invalid OpenWeatherMap API key")

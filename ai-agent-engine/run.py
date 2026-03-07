@@ -15,10 +15,28 @@ Environment Variables:
 """
 
 import argparse
+import asyncio
 import os
 import sys
 
+# Ensure XGBoost can find libomp.dylib from scikit-learn's bundled copy on macOS
+if sys.platform == "darwin":
+    import importlib.util
+    sklearn_spec = importlib.util.find_spec("sklearn")
+    if sklearn_spec and sklearn_spec.origin:
+        from pathlib import Path
+        dylibs_dir = Path(sklearn_spec.origin).parent / ".dylibs"
+        if dylibs_dir.exists():
+            existing = os.environ.get("DYLD_LIBRARY_PATH", "")
+            os.environ["DYLD_LIBRARY_PATH"] = f"{dylibs_dir}:{existing}" if existing else str(dylibs_dir)
+
 import uvicorn
+
+# Fix "too many file descriptors in select()" on Windows.
+# The default SelectorEventLoop only supports ~512 sockets;
+# ProactorEventLoop has no such limit.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 def main():
