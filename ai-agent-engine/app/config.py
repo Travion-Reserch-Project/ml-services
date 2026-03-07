@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     MAX_WEB_SEARCH_RESULTS: int = 5
 
     # LangSmith Monitoring Configuration
-    LANGCHAIN_TRACING_V2: bool = True
+    LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_API_KEY: Optional[str] = None
     LANGCHAIN_PROJECT: str = "travion-ai-engine"
     LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
