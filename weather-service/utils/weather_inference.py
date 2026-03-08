@@ -211,21 +211,21 @@ class WeatherRiskService:
             for _, row in X_df.iterrows():
                 score = 0
 
-                if row["uv_index"] >= 8:
+                if row["UV Index"] >= 8:
                     score += 2
-                elif row["uv_index"] >= 5:
+                elif row["UV Index"] >= 5:
                     score += 1
 
-                if 11 <= row["time_of_day"] <= 14:
+                if 11 <= row["Time of Day"] <= 14:
                     score += 1
 
-                if row["temperature_c"] >= 32:
+                if row["Temperature_C"] >= 32:
                     score += 1
 
-                if row["humidity_pct"] <= 60:
+                if row["Humidity_%"] <= 60:
                     score += 1
 
-                if row["skin_type"] <= 2:
+                if row["Skin Type_encoded"] <= 1:  # Encoded: 0-1 maps to types 1-2
                     score += 1
 
                 if score <= 1:
@@ -237,7 +237,7 @@ class WeatherRiskService:
                 else:
                     label = "very high"
 
-                results.append({"risk_level": label})
+                results.append({"risk_level": label, "encoded_value": score})
 
             return results
 

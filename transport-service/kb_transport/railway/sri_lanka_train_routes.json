@@ -1,0 +1,2203 @@
+{
+  "data_source": "OpenStreetMap + Sri Lanka Railways Official Data",
+  "generated_date": "2026-02-22",
+  "total_routes_osm": 0,
+  "total_stations_osm": 290,
+  "official_railway_lines": [
+    {
+      "line_id": "ML",
+      "line_name": "Main Line",
+      "origin": "Colombo Fort",
+      "destination": "Badulla",
+      "distance_km": 290,
+      "description": "Main railway line through central Sri Lanka via Kandy",
+      "major_stations": [
+        "Colombo Fort",
+        "Maradana",
+        "Ragama",
+        "Gampaha",
+        "Veyangoda",
+        "Polgahawela",
+        "Rambukkana",
+        "Kadugannawa",
+        "Peradeniya",
+        "Kandy",
+        "Gampola",
+        "Nawalapitiya",
+        "Hatton",
+        "Nanu Oya",
+        "Pattipola",
+        "Haputale",
+        "Bandarawela",
+        "Ella",
+        "Badulla"
+      ]
+    },
+    {
+      "line_id": "CL",
+      "line_name": "Coast Line",
+      "origin": "Colombo Fort",
+      "destination": "Matara",
+      "distance_km": 159,
+      "description": "Southern coastal railway line",
+      "major_stations": [
+        "Colombo Fort",
+        "Bambalapitiya",
+        "Wellawatte",
+        "Dehiwala",
+        "Mount Lavinia",
+        "Moratuwa",
+        "Panadura",
+        "Kalutara",
+        "Aluthgama",
+        "Bentota",
+        "Ambalangoda",
+        "Hikkaduwa",
+        "Galle",
+        "Unawatuna",
+        "Weligama",
+        "Matara"
+      ]
+    },
+    {
+      "line_id": "NL",
+      "line_name": "Northern Line",
+      "origin": "Colombo Fort",
+      "destination": "Jaffna",
+      "distance_km": 398,
+      "description": "Northern railway line to Jaffna peninsula",
+      "major_stations": [
+        "Colombo Fort",
+        "Ragama",
+        "Polgahawela",
+        "Kurunegala",
+        "Maho",
+        "Anuradhapura",
+        "Vavuniya",
+        "Kilinochchi",
+        "Jaffna"
+      ]
+    },
+    {
+      "line_id": "PL",
+      "line_name": "Puttalam Line",
+      "origin": "Colombo Fort",
+      "destination": "Puttalam",
+      "distance_km": 152,
+      "description": "Northwestern coastal line",
+      "major_stations": [
+        "Colombo Fort",
+        "Ragama",
+        "Negombo",
+        "Chilaw",
+        "Puttalam"
+      ]
+    },
+    {
+      "line_id": "KVL",
+      "line_name": "Kelani Valley Line",
+      "origin": "Maradana",
+      "destination": "Avissawella",
+      "distance_km": 48,
+      "description": "Suburban line through Kelani valley",
+      "major_stations": [
+        "Maradana",
+        "Baseline Road",
+        "Dematagoda",
+        "Kelaniya",
+        "Wanawasala",
+        "Makumbura",
+        "Padukka",
+        "Avissawella"
+      ]
+    },
+    {
+      "line_id": "TL",
+      "line_name": "Trincomalee Line",
+      "origin": "Maho Junction",
+      "destination": "Trincomalee",
+      "distance_km": 146,
+      "description": "Eastern line to Trincomalee",
+      "major_stations": [
+        "Maho",
+        "Gal Oya Junction",
+        "Polonnaruwa",
+        "Minneriya",
+        "Trincomalee"
+      ]
+    },
+    {
+      "line_id": "BL",
+      "line_name": "Batticaloa Line",
+      "origin": "Polonnaruwa",
+      "destination": "Batticaloa",
+      "distance_km": 133,
+      "description": "Southeastern line to Batticaloa",
+      "major_stations": [
+        "Polonnaruwa",
+        "Valaichchenai",
+        "Batticaloa"
+      ]
+    },
+    {
+      "line_id": "ML2",
+      "line_name": "Matale Line",
+      "origin": "Kandy",
+      "destination": "Matale",
+      "distance_km": 27,
+      "description": "Branch line from Kandy to Matale",
+      "major_stations": [
+        "Kandy",
+        "Ukuwela",
+        "Matale"
+      ]
+    },
+    {
+      "line_id": "TML",
+      "line_name": "Talaimannar Line",
+      "origin": "Anuradhapura",
+      "destination": "Talaimannar",
+      "distance_km": 212,
+      "description": "Northwestern coastal line",
+      "major_stations": [
+        "Anuradhapura",
+        "Medawachchiya",
+        "Mannar",
+        "Talaimannar"
+      ]
+    }
+  ],
+  "osm_route_relations": [],
+  "all_railway_stations": [
+    {
+      "station_name": "Kumarakanda",
+      "latitude": 6.1124485,
+      "longitude": 80.1242871,
+      "station_type": "station",
+      "osm_id": 61602781
+    },
+    {
+      "station_name": "Piyathigama",
+      "latitude": 6.0536503,
+      "longitude": 80.1909694,
+      "station_type": "station",
+      "osm_id": 87762356
+    },
+    {
+      "station_name": "Thiranagama",
+      "latitude": 6.1223145,
+      "longitude": 80.1143858,
+      "station_type": "station",
+      "osm_id": 91029612
+    },
+    {
+      "station_name": "Ginthota",
+      "latitude": 6.0606665,
+      "longitude": 80.1793892,
+      "station_type": "station",
+      "osm_id": 91036830
+    },
+    {
+      "station_name": "Payagala",
+      "latitude": 6.5218897,
+      "longitude": 79.9789255,
+      "station_type": "station",
+      "osm_id": 92058899
+    },
+    {
+      "station_name": "Dodanduwa",
+      "latitude": 6.0981764,
+      "longitude": 80.1328946,
+      "station_type": "station",
+      "osm_id": 92124678
+    },
+    {
+      "station_name": "Seenigama",
+      "latitude": 6.1586793,
+      "longitude": 80.094758,
+      "station_type": "station",
+      "osm_id": 92126866
+    },
+    {
+      "station_name": "Kahawe",
+      "latitude": 6.1831844,
+      "longitude": 80.073997,
+      "station_type": "station",
+      "osm_id": 92126920
+    },
+    {
+      "station_name": "Madampagama",
+      "latitude": 6.2122769,
+      "longitude": 80.0612425,
+      "station_type": "station",
+      "osm_id": 92128330
+    },
+    {
+      "station_name": "Balapititya",
+      "latitude": 6.2764251,
+      "longitude": 80.0433039,
+      "station_type": "station",
+      "osm_id": 92128703
+    },
+    {
+      "station_name": "Ahungalla",
+      "latitude": 6.3127714,
+      "longitude": 80.0375793,
+      "station_type": "station",
+      "osm_id": 92128815
+    },
+    {
+      "station_name": "Kosgoda",
+      "latitude": 6.3385232,
+      "longitude": 80.029375,
+      "station_type": "station",
+      "osm_id": 92128871
+    },
+    {
+      "station_name": "Richmond Hill",
+      "latitude": 6.0539303,
+      "longitude": 80.2048071,
+      "station_type": "station",
+      "osm_id": 92129026
+    },
+    {
+      "station_name": "Secretariat Halt",
+      "latitude": 6.9314483,
+      "longitude": 79.8460372,
+      "station_type": "station",
+      "osm_id": 92132195
+    },
+    {
+      "station_name": "Wanawasala",
+      "latitude": 6.9755509,
+      "longitude": 79.8993572,
+      "station_type": "station",
+      "osm_id": 304322071
+    },
+    {
+      "station_name": "Watagoda",
+      "latitude": 6.9688843,
+      "longitude": 80.6528447,
+      "station_type": "station",
+      "osm_id": 338554325
+    },
+    {
+      "station_name": "Bujjomuwa",
+      "latitude": 7.2731777,
+      "longitude": 80.2106384,
+      "station_type": "station",
+      "osm_id": 347323226
+    },
+    {
+      "station_name": "Yaththalgoda",
+      "latitude": 7.270437,
+      "longitude": 80.1943101,
+      "station_type": "station",
+      "osm_id": 347323232
+    },
+    {
+      "station_name": "Ambepussa Railway Station",
+      "latitude": 7.2559962,
+      "longitude": 80.1693049,
+      "station_type": "station",
+      "osm_id": 347323242
+    },
+    {
+      "station_name": "Botale",
+      "latitude": 7.2565981,
+      "longitude": 80.1531824,
+      "station_type": "station",
+      "osm_id": 347323250
+    },
+    {
+      "station_name": "Batuwatta",
+      "latitude": 7.0551005,
+      "longitude": 79.9372147,
+      "station_type": "station",
+      "osm_id": 347323315
+    },
+    {
+      "station_name": "Dematagoda",
+      "latitude": 6.937547,
+      "longitude": 79.8790153,
+      "station_type": "station",
+      "osm_id": 619234325
+    },
+    {
+      "station_name": "Great Western",
+      "latitude": 6.9572412,
+      "longitude": 80.6891016,
+      "station_type": "station",
+      "osm_id": 892780206
+    },
+    {
+      "station_name": "Talawakele",
+      "latitude": 6.9400481,
+      "longitude": 80.6609908,
+      "station_type": "station",
+      "osm_id": 897870746
+    },
+    {
+      "station_name": "Cotta Road",
+      "latitude": 6.9133542,
+      "longitude": 79.8845224,
+      "station_type": "station",
+      "osm_id": 1128187926
+    },
+    {
+      "station_name": "Kirulapona",
+      "latitude": 6.8830467,
+      "longitude": 79.8828978,
+      "station_type": "station",
+      "osm_id": 1128188042
+    },
+    {
+      "station_name": "Nawinna",
+      "latitude": 6.8528888,
+      "longitude": 79.9178611,
+      "station_type": "station",
+      "osm_id": 1128188069
+    },
+    {
+      "station_name": "Avissawella",
+      "latitude": 6.954549,
+      "longitude": 80.2070547,
+      "station_type": "station",
+      "osm_id": 1128188513
+    },
+    {
+      "station_name": "Narahenpita",
+      "latitude": 6.8969122,
+      "longitude": 79.8780613,
+      "station_type": "station",
+      "osm_id": 1128190754
+    },
+    {
+      "station_name": "Kosgama",
+      "latitude": 6.9406031,
+      "longitude": 80.1372925,
+      "station_type": "station",
+      "osm_id": 1128191571
+    },
+    {
+      "station_name": "Waga",
+      "latitude": 6.9013533,
+      "longitude": 80.1276619,
+      "station_type": "station",
+      "osm_id": 1128191687
+    },
+    {
+      "station_name": "Udahamulla",
+      "latitude": 6.8622118,
+      "longitude": 79.9087271,
+      "station_type": "station",
+      "osm_id": 1128192639
+    },
+    {
+      "station_name": "Padukka",
+      "latitude": 6.8427474,
+      "longitude": 80.0911536,
+      "station_type": "station",
+      "osm_id": 1128193060
+    },
+    {
+      "station_name": "Baseline Road",
+      "latitude": 6.926363,
+      "longitude": 79.8785882,
+      "station_type": "station",
+      "osm_id": 1128194191
+    },
+    {
+      "station_name": "Chilaw",
+      "latitude": 7.5757856,
+      "longitude": 79.7909316,
+      "station_type": "station",
+      "osm_id": 1137448708
+    },
+    {
+      "station_name": "Manuwangama",
+      "latitude": 7.6006132,
+      "longitude": 79.8274738,
+      "station_type": "station",
+      "osm_id": 1137449047
+    },
+    {
+      "station_name": "Kiriyankalli",
+      "latitude": 7.7571732,
+      "longitude": 79.8282517,
+      "station_type": "station",
+      "osm_id": 1137449199
+    },
+    {
+      "station_name": "Walahapitiya",
+      "latitude": 7.439463,
+      "longitude": 79.8591858,
+      "station_type": "station",
+      "osm_id": 1137449334
+    },
+    {
+      "station_name": "Kudawewa",
+      "latitude": 7.4621812,
+      "longitude": 79.8530119,
+      "station_type": "station",
+      "osm_id": 1137449404
+    },
+    {
+      "station_name": "Kakkapalliya",
+      "latitude": 7.5328175,
+      "longitude": 79.8227037,
+      "station_type": "station",
+      "osm_id": 1137449524
+    },
+    {
+      "station_name": "Mundalama",
+      "latitude": 7.7975461,
+      "longitude": 79.8256822,
+      "station_type": "station",
+      "osm_id": 1137449691
+    },
+    {
+      "station_name": "Bangadeniya",
+      "latitude": 7.6272671,
+      "longitude": 79.8286013,
+      "station_type": "station",
+      "osm_id": 1137449694
+    },
+    {
+      "station_name": "Pinwatta",
+      "latitude": 6.6859877,
+      "longitude": 79.9159943,
+      "station_type": "station",
+      "osm_id": 1138324718
+    },
+    {
+      "station_name": "Katukurunda",
+      "latitude": 6.5601254,
+      "longitude": 79.9661171,
+      "station_type": "station",
+      "osm_id": 1138324992
+    },
+    {
+      "station_name": "Induruwa",
+      "latitude": 6.3873819,
+      "longitude": 80.0086384,
+      "station_type": "station",
+      "osm_id": 1138479649
+    },
+    {
+      "station_name": "Mahainduruwa",
+      "latitude": 6.3643888,
+      "longitude": 80.0139361,
+      "station_type": "station",
+      "osm_id": 1138479797
+    },
+    {
+      "station_name": "Maggona",
+      "latitude": 6.5048876,
+      "longitude": 79.9813658,
+      "station_type": "station",
+      "osm_id": 1138479999
+    },
+    {
+      "station_name": "Kandegoda",
+      "latitude": 6.2501907,
+      "longitude": 80.0529169,
+      "station_type": "station",
+      "osm_id": 1138480165
+    },
+    {
+      "station_name": "Beruwala",
+      "latitude": 6.4769437,
+      "longitude": 79.983632,
+      "station_type": "station",
+      "osm_id": 1138480606
+    },
+    {
+      "station_name": "Payagala North",
+      "latitude": 6.5315528,
+      "longitude": 79.9750435,
+      "station_type": "station",
+      "osm_id": 1138481003
+    },
+    {
+      "station_name": "Akurala",
+      "latitude": 6.1920745,
+      "longitude": 80.0647968,
+      "station_type": "station",
+      "osm_id": 1138562255
+    },
+    {
+      "station_name": "Rathgama",
+      "latitude": 6.09335,
+      "longitude": 80.1401109,
+      "station_type": "station",
+      "osm_id": 1138577561
+    },
+    {
+      "station_name": "Telwatte",
+      "latitude": 6.169066,
+      "longitude": 80.0888763,
+      "station_type": "station",
+      "osm_id": 1139209103
+    },
+    {
+      "station_name": "Unawatuna",
+      "latitude": 6.0220651,
+      "longitude": 80.2492172,
+      "station_type": "station",
+      "osm_id": 1139248175
+    },
+    {
+      "station_name": "Bulugahagoda",
+      "latitude": 7.0655794,
+      "longitude": 79.9454477,
+      "station_type": "station",
+      "osm_id": 1139279942
+    },
+    {
+      "station_name": "Polgahawela Junction",
+      "latitude": 7.3307027,
+      "longitude": 80.3011647,
+      "station_type": "station",
+      "osm_id": 1140291390
+    },
+    {
+      "station_name": "Wilwatta",
+      "latitude": 7.2563223,
+      "longitude": 80.1354324,
+      "station_type": "station",
+      "osm_id": 1140291626
+    },
+    {
+      "station_name": "Mirigama",
+      "latitude": 7.2425912,
+      "longitude": 80.1265584,
+      "station_type": "station",
+      "osm_id": 1140291685
+    },
+    {
+      "station_name": "Alawwa",
+      "latitude": 7.2934242,
+      "longitude": 80.2386365,
+      "station_type": "station",
+      "osm_id": 1140291692
+    },
+    {
+      "station_name": "Hiriyala",
+      "latitude": 7.6975804,
+      "longitude": 80.3397981,
+      "station_type": "station",
+      "osm_id": 1143313572
+    },
+    {
+      "station_name": "Ambanpola",
+      "latitude": 7.9188843,
+      "longitude": 80.2461079,
+      "station_type": "station",
+      "osm_id": 1143313787
+    },
+    {
+      "station_name": "Muttetugala",
+      "latitude": 7.4956732,
+      "longitude": 80.3791226,
+      "station_type": "station",
+      "osm_id": 1143313912
+    },
+    {
+      "station_name": "Srawasthipura",
+      "latitude": 8.2987964,
+      "longitude": 80.3769783,
+      "station_type": "station",
+      "osm_id": 1143313922
+    },
+    {
+      "station_name": "Nailiya",
+      "latitude": 7.449891,
+      "longitude": 80.3587223,
+      "station_type": "station",
+      "osm_id": 1143314135
+    },
+    {
+      "station_name": "Maho Junction",
+      "latitude": 7.8231561,
+      "longitude": 80.2750922,
+      "station_type": "station",
+      "osm_id": 1143314167
+    },
+    {
+      "station_name": "Talawa",
+      "latitude": 8.231752,
+      "longitude": 80.348274,
+      "station_type": "station",
+      "osm_id": 1143314565
+    },
+    {
+      "station_name": "Thambuttegama",
+      "latitude": 8.1543184,
+      "longitude": 80.3038834,
+      "station_type": "station",
+      "osm_id": 1143314681
+    },
+    {
+      "station_name": "Pothuhera",
+      "latitude": 7.4198455,
+      "longitude": 80.3274809,
+      "station_type": "station",
+      "osm_id": 1143315265
+    },
+    {
+      "station_name": "Anuradhapura New Town",
+      "latitude": 8.321327,
+      "longitude": 80.3992715,
+      "station_type": "halt",
+      "osm_id": 1143315296
+    },
+    {
+      "station_name": "Thalawattegedara",
+      "latitude": 7.3878803,
+      "longitude": 80.3016136,
+      "station_type": "station",
+      "osm_id": 1143315442
+    },
+    {
+      "station_name": "Mihintale",
+      "latitude": 8.3586214,
+      "longitude": 80.5016942,
+      "station_type": "station",
+      "osm_id": 1144853746
+    },
+    {
+      "station_name": "Thandikulam",
+      "latitude": 8.7782563,
+      "longitude": 80.4850221,
+      "station_type": "station",
+      "osm_id": 1146140491
+    },
+    {
+      "station_name": "Parasangaswewa Railway Station",
+      "latitude": 8.4453692,
+      "longitude": 80.4315165,
+      "station_type": "station",
+      "osm_id": 1146140887
+    },
+    {
+      "station_name": "Medawachchiya",
+      "latitude": 8.5545098,
+      "longitude": 80.4581661,
+      "station_type": "station",
+      "osm_id": 1146141350
+    },
+    {
+      "station_name": "Murikandi-Kokavil",
+      "latitude": 9.2063495,
+      "longitude": 80.4175742,
+      "station_type": "station",
+      "osm_id": 1146591688
+    },
+    {
+      "station_name": "Ariviyal Nagar",
+      "latitude": 9.3187473,
+      "longitude": 80.4076622,
+      "station_type": "station",
+      "osm_id": 1146591924
+    },
+    {
+      "station_name": "Meesalai",
+      "latitude": 9.6735961,
+      "longitude": 80.1889621,
+      "station_type": "station",
+      "osm_id": 1148494560
+    },
+    {
+      "station_name": "Elephant Pass",
+      "latitude": 9.5023899,
+      "longitude": 80.4058641,
+      "station_type": "station",
+      "osm_id": 1148494958
+    },
+    {
+      "station_name": "Chavakachcheri",
+      "latitude": 9.6571317,
+      "longitude": 80.1584591,
+      "station_type": "station",
+      "osm_id": 1148494963
+    },
+    {
+      "station_name": "Kodaikamam",
+      "latitude": 9.6813106,
+      "longitude": 80.2193279,
+      "station_type": "station",
+      "osm_id": 1148494997
+    },
+    {
+      "station_name": "Eluthumadduval",
+      "latitude": 9.661095,
+      "longitude": 80.2656514,
+      "station_type": "station",
+      "osm_id": 1148495492
+    },
+    {
+      "station_name": "Punkankulam",
+      "latitude": 9.6593033,
+      "longitude": 80.0382833,
+      "station_type": "station",
+      "osm_id": 1148496040
+    },
+    {
+      "station_name": "Pesalai",
+      "latitude": 9.0823153,
+      "longitude": 79.8227946,
+      "station_type": "station",
+      "osm_id": 1168787880
+    },
+    {
+      "station_name": "Talaimannar",
+      "latitude": 9.1033259,
+      "longitude": 79.7298828,
+      "station_type": "station",
+      "osm_id": 1168788044
+    },
+    {
+      "station_name": "Kekirawa",
+      "latitude": 8.0584532,
+      "longitude": 80.5814517,
+      "station_type": "station",
+      "osm_id": 1168900232
+    },
+    {
+      "station_name": "Habarana",
+      "latitude": 8.0573101,
+      "longitude": 80.7695893,
+      "station_type": "station",
+      "osm_id": 1169246067
+    },
+    {
+      "station_name": "Galoya Junction Railway Station",
+      "latitude": 8.1377809,
+      "longitude": 80.8658177,
+      "station_type": "station",
+      "osm_id": 1169246212
+    },
+    {
+      "station_name": "Agbopura",
+      "latitude": 8.3267329,
+      "longitude": 80.9796646,
+      "station_type": "station",
+      "osm_id": 1171391608
+    },
+    {
+      "station_name": "Kantale",
+      "latitude": 8.3562353,
+      "longitude": 81.0062054,
+      "station_type": "station",
+      "osm_id": 1171391647
+    },
+    {
+      "station_name": "Trincomalee",
+      "latitude": 8.5844138,
+      "longitude": 81.2262012,
+      "station_type": "station",
+      "osm_id": 1172969921
+    },
+    {
+      "station_name": "China Bay",
+      "latitude": 8.556397,
+      "longitude": 81.1904552,
+      "station_type": "station",
+      "osm_id": 1172970228
+    },
+    {
+      "station_name": "Polonnaruwa",
+      "latitude": 7.9301686,
+      "longitude": 81.0333406,
+      "station_type": "station",
+      "osm_id": 1173326087
+    },
+    {
+      "station_name": "Minneriya",
+      "latitude": 8.0653841,
+      "longitude": 80.8947665,
+      "station_type": "halt",
+      "osm_id": 1173326127
+    },
+    {
+      "station_name": "Parakum Uyana",
+      "latitude": 7.9735976,
+      "longitude": 81.0178049,
+      "station_type": "halt",
+      "osm_id": 1173676348
+    },
+    {
+      "station_name": "Eravur",
+      "latitude": 7.7855975,
+      "longitude": 81.6044408,
+      "station_type": "station",
+      "osm_id": 1173695483
+    },
+    {
+      "station_name": "Valaichchenai",
+      "latitude": 7.9102735,
+      "longitude": 81.5318574,
+      "station_type": "station",
+      "osm_id": 1173695522
+    },
+    {
+      "station_name": "Wattegama",
+      "latitude": 7.350651,
+      "longitude": 80.6825578,
+      "station_type": "station",
+      "osm_id": 1175898701
+    },
+    {
+      "station_name": "Ihalakotte",
+      "latitude": 7.2887,
+      "longitude": 80.469259,
+      "station_type": "station",
+      "osm_id": 1175898763
+    },
+    {
+      "station_name": "Ukuwela",
+      "latitude": 7.4202246,
+      "longitude": 80.6342993,
+      "station_type": "station",
+      "osm_id": 1175900259
+    },
+    {
+      "station_name": "Balana",
+      "latitude": 7.2667493,
+      "longitude": 80.489353,
+      "station_type": "station",
+      "osm_id": 1175901018
+    },
+    {
+      "station_name": "Matale",
+      "latitude": 7.467966,
+      "longitude": 80.6248632,
+      "station_type": "station",
+      "osm_id": 1175901078
+    },
+    {
+      "station_name": "Pannaliya",
+      "latitude": 7.3286016,
+      "longitude": 80.3253063,
+      "station_type": "station",
+      "osm_id": 1175901262
+    },
+    {
+      "station_name": "Kadugannawa",
+      "latitude": 7.2577827,
+      "longitude": 80.5207503,
+      "station_type": "station",
+      "osm_id": 1175902881
+    },
+    {
+      "station_name": "Katugastota",
+      "latitude": 7.3304562,
+      "longitude": 80.6330084,
+      "station_type": "station",
+      "osm_id": 1175904246
+    },
+    {
+      "station_name": "Koshinna",
+      "latitude": 7.2335858,
+      "longitude": 80.5950443,
+      "station_type": "station",
+      "osm_id": 1176188739
+    },
+    {
+      "station_name": "Ulapane",
+      "latitude": 7.1082827,
+      "longitude": 80.5597211,
+      "station_type": "station",
+      "osm_id": 1177231213
+    },
+    {
+      "station_name": "Tembligala",
+      "latitude": 7.1331823,
+      "longitude": 80.559258,
+      "station_type": "halt",
+      "osm_id": 1177231929
+    },
+    {
+      "station_name": "Galboda",
+      "latitude": 6.9860278,
+      "longitude": 80.5300581,
+      "station_type": "station",
+      "osm_id": 1177512170
+    },
+    {
+      "station_name": "Rozelle",
+      "latitude": 6.9348701,
+      "longitude": 80.5587202,
+      "station_type": "station",
+      "osm_id": 1177512252
+    },
+    {
+      "station_name": "Ihala Watawala",
+      "latitude": 6.9481148,
+      "longitude": 80.542167,
+      "station_type": "station",
+      "osm_id": 1177512876
+    },
+    {
+      "station_name": "Inguru Oya",
+      "latitude": 7.018222,
+      "longitude": 80.5457206,
+      "station_type": "station",
+      "osm_id": 1177513749
+    },
+    {
+      "station_name": "Ohiya",
+      "latitude": 6.8177121,
+      "longitude": 80.8430198,
+      "station_type": "station",
+      "osm_id": 1178458796
+    },
+    {
+      "station_name": "Idalgashinna",
+      "latitude": 6.7793989,
+      "longitude": 80.8968826,
+      "station_type": "station",
+      "osm_id": 1178458977
+    },
+    {
+      "station_name": "Hali-Ela",
+      "latitude": 6.9539582,
+      "longitude": 81.0334492,
+      "station_type": "station",
+      "osm_id": 1179884414
+    },
+    {
+      "station_name": "Demodara",
+      "latitude": 6.9029362,
+      "longitude": 81.0627711,
+      "station_type": "station",
+      "osm_id": 1179884454
+    },
+    {
+      "station_name": "Laksha Uyana",
+      "latitude": 7.9882828,
+      "longitude": 80.9968624,
+      "station_type": "halt",
+      "osm_id": 1241539413
+    },
+    {
+      "station_name": "Kumbalgama",
+      "latitude": 5.9636147,
+      "longitude": 80.4097062,
+      "station_type": "station",
+      "osm_id": 1685297495
+    },
+    {
+      "station_name": "Midigama",
+      "latitude": 5.9651656,
+      "longitude": 80.3914881,
+      "station_type": "station",
+      "osm_id": 1685576493
+    },
+    {
+      "station_name": "Thampalakamam",
+      "latitude": 8.498339,
+      "longitude": 81.0953498,
+      "station_type": "station",
+      "osm_id": 1728255091
+    },
+    {
+      "station_name": "Ganthalawa",
+      "latitude": 8.4165855,
+      "longitude": 81.036773,
+      "station_type": "station",
+      "osm_id": 1728263431
+    },
+    {
+      "station_name": "Mollipothana",
+      "latitude": 8.4450308,
+      "longitude": 81.0618736,
+      "station_type": "station",
+      "osm_id": 1728263442
+    },
+    {
+      "station_name": "Ganewatte",
+      "latitude": 7.6550184,
+      "longitude": 80.3486525,
+      "station_type": "station",
+      "osm_id": 1728286789
+    },
+    {
+      "station_name": "Wellawa",
+      "latitude": 7.5596275,
+      "longitude": 80.3661793,
+      "station_type": "station",
+      "osm_id": 1728286790
+    },
+    {
+      "station_name": "Galgamuwa",
+      "latitude": 8.0021635,
+      "longitude": 80.2715285,
+      "station_type": "station",
+      "osm_id": 1728286792
+    },
+    {
+      "station_name": "Nagollagama",
+      "latitude": 7.7538118,
+      "longitude": 80.314565,
+      "station_type": "station",
+      "osm_id": 1728294289
+    },
+    {
+      "station_name": "Girambe",
+      "latitude": 7.3646496,
+      "longitude": 80.3025304,
+      "station_type": "station",
+      "osm_id": 1856813120
+    },
+    {
+      "station_name": "Pinnawala",
+      "latitude": 6.8693009,
+      "longitude": 80.1173053,
+      "station_type": "station",
+      "osm_id": 1862832376
+    },
+    {
+      "station_name": "Kalkudah",
+      "latitude": 7.8966092,
+      "longitude": 81.5538496,
+      "station_type": "halt",
+      "osm_id": 1880451289
+    },
+    {
+      "station_name": "Jayanthipura",
+      "latitude": 8.0049706,
+      "longitude": 80.9835498,
+      "station_type": "halt",
+      "osm_id": 2285196541
+    },
+    {
+      "station_name": "Mawilmada",
+      "latitude": 7.3191816,
+      "longitude": 80.6310223,
+      "station_type": "halt",
+      "osm_id": 2609096345
+    },
+    {
+      "station_name": "Kelaniya",
+      "latitude": 6.9610592,
+      "longitude": 79.8944725,
+      "station_type": "station",
+      "osm_id": 2648621439
+    },
+    {
+      "station_name": "Killinochchi",
+      "latitude": 9.3857084,
+      "longitude": 80.4059976,
+      "station_type": "station",
+      "osm_id": 2671478496
+    },
+    {
+      "station_name": "Madhu Road",
+      "latitude": 8.7738352,
+      "longitude": 80.1501633,
+      "station_type": "station",
+      "osm_id": 2671478503
+    },
+    {
+      "station_name": "Egoda Uyana",
+      "latitude": 6.7429318,
+      "longitude": 79.8916572,
+      "station_type": "station",
+      "osm_id": 2681885360
+    },
+    {
+      "station_name": "Moratuwa",
+      "latitude": 6.7743504,
+      "longitude": 79.8817806,
+      "station_type": "station",
+      "osm_id": 2681885364
+    },
+    {
+      "station_name": "Anuradhapura School",
+      "latitude": 8.3303177,
+      "longitude": 80.4070693,
+      "station_type": "halt",
+      "osm_id": 2831586566
+    },
+    {
+      "station_name": "Asokapura",
+      "latitude": 8.3802238,
+      "longitude": 80.478358,
+      "station_type": "halt",
+      "osm_id": 2831586568
+    },
+    {
+      "station_name": "Samagipura",
+      "latitude": 8.3577798,
+      "longitude": 80.4414589,
+      "station_type": "halt",
+      "osm_id": 2831589091
+    },
+    {
+      "station_name": "Sevanapitiya",
+      "latitude": 7.9215565,
+      "longitude": 81.1843066,
+      "station_type": "halt",
+      "osm_id": 2831610508
+    },
+    {
+      "station_name": "Saliyapura",
+      "latitude": 8.3899157,
+      "longitude": 80.4223003,
+      "station_type": "halt",
+      "osm_id": 2833605614
+    },
+    {
+      "station_name": "Siyabalagawewa",
+      "latitude": 8.4626639,
+      "longitude": 80.4331804,
+      "station_type": "halt",
+      "osm_id": 2833605615
+    },
+    {
+      "station_name": "Senarathgama",
+      "latitude": 8.0858801,
+      "longitude": 80.2777081,
+      "station_type": "station",
+      "osm_id": 2837565658
+    },
+    {
+      "station_name": "Randal's Hill",
+      "latitude": 7.2786138,
+      "longitude": 80.6180462,
+      "station_type": "halt",
+      "osm_id": 2913824001
+    },
+    {
+      "station_name": "Gelioya Train Station",
+      "latitude": 7.2139104,
+      "longitude": 80.5986203,
+      "station_type": "station",
+      "osm_id": 2918209198
+    },
+    {
+      "station_name": "Andadola",
+      "latitude": 6.2661943,
+      "longitude": 80.0469401,
+      "station_type": "station",
+      "osm_id": 3091348048
+    },
+    {
+      "station_name": "Angampitya",
+      "latitude": 6.8529835,
+      "longitude": 80.1094043,
+      "station_type": "station",
+      "osm_id": 3091350958
+    },
+    {
+      "station_name": "Elwala",
+      "latitude": 7.4416745,
+      "longitude": 80.6321344,
+      "station_type": "station",
+      "osm_id": 3091402165
+    },
+    {
+      "station_name": "Iratperiya Kulam",
+      "latitude": 8.7095586,
+      "longitude": 80.4811639,
+      "station_type": "station",
+      "osm_id": 3091412586
+    },
+    {
+      "station_name": "Gammana",
+      "latitude": 6.8771479,
+      "longitude": 80.1231952,
+      "station_type": "station",
+      "osm_id": 3092123008
+    },
+    {
+      "station_name": "Hatares Kotuwa",
+      "latitude": 8.1451745,
+      "longitude": 80.8391243,
+      "station_type": "station",
+      "osm_id": 3092143617
+    },
+    {
+      "station_name": "Hettimulla",
+      "latitude": 6.4576854,
+      "longitude": 79.9907622,
+      "station_type": "station",
+      "osm_id": 3092187158
+    },
+    {
+      "station_name": "Horiwiala",
+      "latitude": 8.0677899,
+      "longitude": 80.6785139,
+      "station_type": "station",
+      "osm_id": 3092194402
+    },
+    {
+      "station_name": "Hightenford",
+      "latitude": 7.0330481,
+      "longitude": 80.530848,
+      "station_type": "station",
+      "osm_id": 3092204056
+    },
+    {
+      "station_name": "Kalawewa",
+      "latitude": 8.0237261,
+      "longitude": 80.5311746,
+      "station_type": "station",
+      "osm_id": 3092276619
+    },
+    {
+      "station_name": "Karadipuwal",
+      "latitude": 8.1353837,
+      "longitude": 79.8639129,
+      "station_type": "station",
+      "osm_id": 3092287638
+    },
+    {
+      "station_name": "Keenawala",
+      "latitude": 7.1854854,
+      "longitude": 80.0743794,
+      "station_type": "station",
+      "osm_id": 3092295473
+    },
+    {
+      "station_name": "Koralawalla",
+      "latitude": 6.7584506,
+      "longitude": 79.8859478,
+      "station_type": "station",
+      "osm_id": 3092346627
+    },
+    {
+      "station_name": "Liyanwala",
+      "latitude": 6.8383604,
+      "longitude": 80.0797169,
+      "station_type": "station",
+      "osm_id": 3092365290
+    },
+    {
+      "station_name": "Madurankuli",
+      "latitude": 7.9020671,
+      "longitude": 79.8204737,
+      "station_type": "station",
+      "osm_id": 3092375152
+    },
+    {
+      "station_name": "Madegama",
+      "latitude": 8.4750004,
+      "longitude": 80.4351423,
+      "station_type": "station",
+      "osm_id": 3092418626
+    },
+    {
+      "station_name": "Mankulam",
+      "latitude": 9.12999,
+      "longitude": 80.4445722,
+      "station_type": "station",
+      "osm_id": 3092419086
+    },
+    {
+      "station_name": "Mirissa",
+      "latitude": 5.9566902,
+      "longitude": 80.4734963,
+      "station_type": "station",
+      "osm_id": 3092545086
+    },
+    {
+      "station_name": "Moragollagama",
+      "latitude": 7.905764,
+      "longitude": 80.4221695,
+      "station_type": "station",
+      "osm_id": 3092551270
+    },
+    {
+      "station_name": "Morakele",
+      "latitude": 6.8832238,
+      "longitude": 80.123948,
+      "station_type": "station",
+      "osm_id": 3092570865
+    },
+    {
+      "station_name": "Nanu Oya",
+      "latitude": 6.9420663,
+      "longitude": 80.7436484,
+      "station_type": "station",
+      "osm_id": 3092584733
+    },
+    {
+      "station_name": "Negama",
+      "latitude": 7.9799089,
+      "longitude": 80.4835241,
+      "station_type": "station",
+      "osm_id": 3092596010
+    },
+    {
+      "station_name": "Neriyakulam",
+      "latitude": 8.6165845,
+      "longitude": 80.3568548,
+      "station_type": "station",
+      "osm_id": 3092600710
+    },
+    {
+      "station_name": "Pallewala",
+      "latitude": 7.1983011,
+      "longitude": 80.0899349,
+      "station_type": "station",
+      "osm_id": 3092611353
+    },
+    {
+      "station_name": "Palugaswewa",
+      "latitude": 8.0590196,
+      "longitude": 80.7132576,
+      "station_type": "station",
+      "osm_id": 3092624215
+    },
+    {
+      "station_name": "Pangiriwatta",
+      "latitude": 6.864956,
+      "longitude": 79.9022473,
+      "station_type": "station",
+      "osm_id": 3092671587
+    },
+    {
+      "station_name": "Paranthan",
+      "latitude": 9.4401189,
+      "longitude": 80.407105,
+      "station_type": "station",
+      "osm_id": 3092675479
+    },
+    {
+      "station_name": "Pathegamgoda",
+      "latitude": 6.297115,
+      "longitude": 80.0415561,
+      "station_type": "station",
+      "osm_id": 3092677804
+    },
+    {
+      "station_name": "Patanpaha",
+      "latitude": 7.3840931,
+      "longitude": 80.6616741,
+      "station_type": "station",
+      "osm_id": 3092751586
+    },
+    {
+      "station_name": "Penrose",
+      "latitude": 6.9943143,
+      "longitude": 80.5394705,
+      "station_type": "station",
+      "osm_id": 3092757203
+    },
+    {
+      "station_name": "Peradeniya Junction",
+      "latitude": 7.2573002,
+      "longitude": 80.5901975,
+      "station_type": "station",
+      "osm_id": 3092762743
+    },
+    {
+      "station_name": "Periyanagavillu",
+      "latitude": 8.2283858,
+      "longitude": 79.8666104,
+      "station_type": "station",
+      "osm_id": 3092775163
+    },
+    {
+      "station_name": "Piyagama",
+      "latitude": 6.3290357,
+      "longitude": 80.0335213,
+      "station_type": "station",
+      "osm_id": 3092793918
+    },
+    {
+      "station_name": "Polwathumodara",
+      "latitude": 5.9645346,
+      "longitude": 80.4572358,
+      "station_type": "station",
+      "osm_id": 3092797789
+    },
+    {
+      "station_name": "Punewa",
+      "latitude": 8.6130857,
+      "longitude": 80.462864,
+      "station_type": "station",
+      "osm_id": 3092822215
+    },
+    {
+      "station_name": "Puliyankulam",
+      "latitude": 8.9609281,
+      "longitude": 80.5230039,
+      "station_type": "station",
+      "osm_id": 3092851447
+    },
+    {
+      "station_name": "Radella",
+      "latitude": 6.9448004,
+      "longitude": 80.716728,
+      "station_type": "station",
+      "osm_id": 3092857095
+    },
+    {
+      "station_name": "Rambukkana",
+      "latitude": 7.3210536,
+      "longitude": 80.3903192,
+      "station_type": "station",
+      "osm_id": 3092858649
+    },
+    {
+      "station_name": "Randenigama",
+      "latitude": 7.8485354,
+      "longitude": 80.2593352,
+      "station_type": "station",
+      "osm_id": 3092896687
+    },
+    {
+      "station_name": "Welikanda",
+      "latitude": 7.9471138,
+      "longitude": 81.2503557,
+      "station_type": "station",
+      "osm_id": 3092912530
+    },
+    {
+      "station_name": "Sawarana",
+      "latitude": 7.5614974,
+      "longitude": 79.805341,
+      "station_type": "station",
+      "osm_id": 3092966618
+    },
+    {
+      "station_name": "Timbiriyagedara",
+      "latitude": 7.7812961,
+      "longitude": 80.2976683,
+      "station_type": "station",
+      "osm_id": 3093068369
+    },
+    {
+      "station_name": "Tismalpola",
+      "latitude": 7.3217113,
+      "longitude": 80.3431512,
+      "station_type": "station",
+      "osm_id": 3093076279
+    },
+    {
+      "station_name": "Viralmurippuwa",
+      "latitude": 8.5308063,
+      "longitude": 80.446541,
+      "station_type": "station",
+      "osm_id": 3093567807
+    },
+    {
+      "station_name": "Walakumbura",
+      "latitude": 7.3138576,
+      "longitude": 80.2690495,
+      "station_type": "station",
+      "osm_id": 3093577995
+    },
+    {
+      "station_name": "Yatagama",
+      "latitude": 7.3186864,
+      "longitude": 80.3641048,
+      "station_type": "station",
+      "osm_id": 3093588829
+    },
+    {
+      "station_name": "Pallai",
+      "latitude": 9.6078751,
+      "longitude": 80.3298414,
+      "station_type": "station",
+      "osm_id": 3313919778
+    },
+    {
+      "station_name": "Konwewa",
+      "latitude": 7.8507932,
+      "longitude": 80.3491121,
+      "station_type": "station",
+      "osm_id": 3315021374
+    },
+    {
+      "station_name": "Polgahanga",
+      "latitude": 7.1965592,
+      "longitude": 80.5983098,
+      "station_type": "halt",
+      "osm_id": 3328439842
+    },
+    {
+      "station_name": "Navatkuli Railway Station",
+      "latitude": 9.6616561,
+      "longitude": 80.0814724,
+      "station_type": "station",
+      "osm_id": 3540412142
+    },
+    {
+      "station_name": "Beliatta",
+      "latitude": 6.0421661,
+      "longitude": 80.7372524,
+      "station_type": "station",
+      "osm_id": 3634859066
+    },
+    {
+      "station_name": "Chettikulam Station",
+      "latitude": 8.6689844,
+      "longitude": 80.3059036,
+      "station_type": "station",
+      "osm_id": 3665942841
+    },
+    {
+      "station_name": "Warakawa",
+      "latitude": 7.0740747,
+      "longitude": 80.5406849,
+      "station_type": "halt",
+      "osm_id": 3770151110
+    },
+    {
+      "station_name": "Pallegama",
+      "latitude": 7.0837437,
+      "longitude": 80.5526498,
+      "station_type": "halt",
+      "osm_id": 3770166377
+    },
+    {
+      "station_name": "Pattam Paha",
+      "latitude": 7.3807323,
+      "longitude": 80.6621247,
+      "station_type": "halt",
+      "osm_id": 3856394476
+    },
+    {
+      "station_name": "Ambalangoda Railway Station",
+      "latitude": 6.2353754,
+      "longitude": 80.0549325,
+      "station_type": "station",
+      "osm_id": 3926651383
+    },
+    {
+      "station_name": "Sangathanai Railway Station",
+      "latitude": 9.664046,
+      "longitude": 80.1723805,
+      "station_type": "station",
+      "osm_id": 3958951994
+    },
+    {
+      "station_name": "Thachanthoppu",
+      "latitude": 9.6571772,
+      "longitude": 80.1108181,
+      "station_type": "station",
+      "osm_id": 3990565228
+    },
+    {
+      "station_name": "Rajawatta",
+      "latitude": 7.2676046,
+      "longitude": 80.6028685,
+      "station_type": "halt",
+      "osm_id": 4034331784
+    },
+    {
+      "station_name": "Kattuwa",
+      "latitude": 7.2399357,
+      "longitude": 79.8475622,
+      "station_type": "station",
+      "osm_id": 4038338014
+    },
+    {
+      "station_name": "Noor Nagar",
+      "latitude": 8.035971,
+      "longitude": 79.8398157,
+      "station_type": "station",
+      "osm_id": 4038370993
+    },
+    {
+      "station_name": "Aselapura",
+      "latitude": 7.9630997,
+      "longitude": 81.2990714,
+      "station_type": "halt",
+      "osm_id": 4075038185
+    },
+    {
+      "station_name": "Rideethenna",
+      "latitude": 7.9638576,
+      "longitude": 81.3393687,
+      "station_type": "halt",
+      "osm_id": 4075039577
+    },
+    {
+      "station_name": "Gallella",
+      "latitude": 7.9053038,
+      "longitude": 81.0631516,
+      "station_type": "halt",
+      "osm_id": 4075186466
+    },
+    {
+      "station_name": "Hathamuna",
+      "latitude": 8.0190988,
+      "longitude": 80.9692934,
+      "station_type": "halt",
+      "osm_id": 4076853085
+    },
+    {
+      "station_name": "Mirusuvil",
+      "latitude": 9.6741668,
+      "longitude": 80.2432739,
+      "station_type": "station",
+      "osm_id": 4109833590
+    },
+    {
+      "station_name": "Katugoda",
+      "latitude": 6.0327454,
+      "longitude": 80.2401656,
+      "station_type": "station",
+      "osm_id": 4187025379
+    },
+    {
+      "station_name": "Wadduwa",
+      "latitude": 6.6632626,
+      "longitude": 79.9286921,
+      "station_type": "station",
+      "osm_id": 4197716349
+    },
+    {
+      "station_name": "Waskaduwa",
+      "latitude": 6.6325467,
+      "longitude": 79.9403371,
+      "station_type": "station",
+      "osm_id": 4197716350
+    },
+    {
+      "station_name": "Wallahagoda",
+      "latitude": 7.1454531,
+      "longitude": 80.5616084,
+      "station_type": "halt",
+      "osm_id": 4441664134
+    },
+    {
+      "station_name": "Kahatapitiya",
+      "latitude": 7.1678156,
+      "longitude": 80.5727431,
+      "station_type": "halt",
+      "osm_id": 4441664135
+    },
+    {
+      "station_name": "Bothalapitiya",
+      "latitude": 7.1747194,
+      "longitude": 80.5794478,
+      "station_type": "halt",
+      "osm_id": 4441664137
+    },
+    {
+      "station_name": "Warakapitiya",
+      "latitude": 7.1175228,
+      "longitude": 80.5614805,
+      "station_type": "halt",
+      "osm_id": 4441961370
+    },
+    {
+      "station_name": "Erukkalampiddy-Nagavillu Railway station",
+      "latitude": 7.9615801,
+      "longitude": 79.8301236,
+      "station_type": "station",
+      "osm_id": 4613703731
+    },
+    {
+      "station_name": "Asgiriya",
+      "latitude": 7.2978431,
+      "longitude": 80.6352522,
+      "station_type": "station",
+      "osm_id": 4713806031
+    },
+    {
+      "station_name": "Palle Talawinna",
+      "latitude": 7.3379695,
+      "longitude": 80.6415662,
+      "station_type": "station",
+      "osm_id": 4713839156
+    },
+    {
+      "station_name": "Uda Talawinna",
+      "latitude": 7.3395582,
+      "longitude": 80.6513081,
+      "station_type": "station",
+      "osm_id": 4713846086
+    },
+    {
+      "station_name": "Meegammana",
+      "latitude": 7.3404456,
+      "longitude": 80.6670587,
+      "station_type": "station",
+      "osm_id": 4713850107
+    },
+    {
+      "station_name": "Angulana",
+      "latitude": 6.7988303,
+      "longitude": 79.8727054,
+      "station_type": "station",
+      "osm_id": 4753573110
+    },
+    {
+      "station_name": "Lunawa",
+      "latitude": 6.786652,
+      "longitude": 79.8755526,
+      "station_type": "station",
+      "osm_id": 4753573335
+    },
+    {
+      "station_name": "Bambalapitiya",
+      "latitude": 6.8939813,
+      "longitude": 79.8529747,
+      "station_type": "station",
+      "osm_id": 4762471168
+    },
+    {
+      "station_name": "Perakumpura Sub Railway",
+      "latitude": 6.9198221,
+      "longitude": 80.7536319,
+      "station_type": "station",
+      "osm_id": 4775762063
+    },
+    {
+      "station_name": "Kadigamuwa",
+      "latitude": 7.3179288,
+      "longitude": 80.4333295,
+      "station_type": "station",
+      "osm_id": 4949449992
+    },
+    {
+      "station_name": "Glenanore Railway Station",
+      "latitude": 6.7712498,
+      "longitude": 80.9366065,
+      "station_type": "station",
+      "osm_id": 5172591870
+    },
+    {
+      "station_name": "Wadurawa Railway Station",
+      "latitude": 7.167838,
+      "longitude": 80.0660584,
+      "station_type": "station",
+      "osm_id": 5260460514
+    },
+    {
+      "station_name": "Battulu Oya",
+      "latitude": 7.7272017,
+      "longitude": 79.8316925,
+      "station_type": "station",
+      "osm_id": 5338791530
+    },
+    {
+      "station_name": "Bambaranda",
+      "latitude": 5.9705981,
+      "longitude": 80.6607525,
+      "station_type": "station",
+      "osm_id": 5345933452
+    },
+    {
+      "station_name": "IPZ - Katunayake South",
+      "latitude": 7.157917,
+      "longitude": 79.8752569,
+      "station_type": "station",
+      "osm_id": 5610108237
+    },
+    {
+      "station_name": "Yagoda",
+      "latitude": 7.0747267,
+      "longitude": 79.9739,
+      "station_type": "station",
+      "osm_id": 5769656114
+    },
+    {
+      "station_name": "Ragama",
+      "latitude": 7.0299493,
+      "longitude": 79.921428,
+      "station_type": "station",
+      "osm_id": 5769656115
+    },
+    {
+      "station_name": "Horape",
+      "latitude": 7.0165896,
+      "longitude": 79.918322,
+      "station_type": "station",
+      "osm_id": 5769656116
+    },
+    {
+      "station_name": "Enderamulla",
+      "latitude": 7.0004396,
+      "longitude": 79.9068341,
+      "station_type": "station",
+      "osm_id": 5769656117
+    },
+    {
+      "station_name": "Hunupitiya",
+      "latitude": 6.9877406,
+      "longitude": 79.9004906,
+      "station_type": "station",
+      "osm_id": 5769656118
+    },
+    {
+      "station_name": "Heendeniya-Pattigoda",
+      "latitude": 7.1410796,
+      "longitude": 80.0472008,
+      "station_type": "station",
+      "osm_id": 5769697428
+    },
+    {
+      "station_name": "Megalegoda",
+      "latitude": 7.133754,
+      "longitude": 80.0363003,
+      "station_type": "station",
+      "osm_id": 5769697429
+    },
+    {
+      "station_name": "Bemmulla",
+      "latitude": 7.1224062,
+      "longitude": 80.0204927,
+      "station_type": "station",
+      "osm_id": 5769697430
+    },
+    {
+      "station_name": "Daraluwa",
+      "latitude": 7.1070543,
+      "longitude": 80.0104022,
+      "station_type": "station",
+      "osm_id": 5769697431
+    },
+    {
+      "station_name": "Gampaha",
+      "latitude": 7.0920985,
+      "longitude": 79.992772,
+      "station_type": "station",
+      "osm_id": 5769697432
+    },
+    {
+      "station_name": "Veyangoda",
+      "latitude": 7.1530741,
+      "longitude": 80.0584119,
+      "station_type": "station",
+      "osm_id": 5769702653
+    },
+    {
+      "station_name": "Wijayarajadahana",
+      "latitude": 7.2309324,
+      "longitude": 80.1184778,
+      "station_type": "station",
+      "osm_id": 5769719768
+    },
+    {
+      "station_name": "Alawathupitiya",
+      "latitude": 7.115952,
+      "longitude": 79.8870266,
+      "station_type": "station",
+      "osm_id": 5769838363
+    },
+    {
+      "station_name": "Kudahakapola",
+      "latitude": 7.103893,
+      "longitude": 79.889808,
+      "station_type": "station",
+      "osm_id": 5769838364
+    },
+    {
+      "station_name": "Tudella",
+      "latitude": 7.0929503,
+      "longitude": 79.8909487,
+      "station_type": "station",
+      "osm_id": 5769838365
+    },
+    {
+      "station_name": "Ja ela",
+      "latitude": 7.0777904,
+      "longitude": 79.8921517,
+      "station_type": "station",
+      "osm_id": 5769838366
+    },
+    {
+      "station_name": "Kapuwatta",
+      "latitude": 7.0629149,
+      "longitude": 79.896002,
+      "station_type": "station",
+      "osm_id": 5769838367
+    },
+    {
+      "station_name": "Kandana",
+      "latitude": 7.04929,
+      "longitude": 79.9015367,
+      "station_type": "station",
+      "osm_id": 5769838368
+    },
+    {
+      "station_name": "Peralanda",
+      "latitude": 7.0381323,
+      "longitude": 79.9122199,
+      "station_type": "station",
+      "osm_id": 5769838369
+    },
+    {
+      "station_name": "Katunayake",
+      "latitude": 7.1674441,
+      "longitude": 79.8718829,
+      "station_type": "station",
+      "osm_id": 5769840419
+    },
+    {
+      "station_name": "Thoddaweli",
+      "latitude": 9.0252665,
+      "longitude": 79.8672988,
+      "station_type": "halt",
+      "osm_id": 5785426625
+    },
+    {
+      "station_name": "Maradana",
+      "latitude": 6.9292373,
+      "longitude": 79.865796,
+      "station_type": "station",
+      "osm_id": 5847983789
+    },
+    {
+      "station_name": "Boossa Train Station",
+      "latitude": 6.0739289,
+      "longitude": 80.1611425,
+      "station_type": "station",
+      "osm_id": 6298925921
+    },
+    {
+      "station_name": "Wewrukannala",
+      "latitude": 5.9794925,
+      "longitude": 80.6973864,
+      "station_type": "station",
+      "osm_id": 6402509511
+    },
+    {
+      "station_name": "Peradeniya Junction",
+      "latitude": 7.2556021,
+      "longitude": 80.5893918,
+      "station_type": "station",
+      "osm_id": 6498438905
+    },
+    {
+      "station_name": "Slave Island Railway Station",
+      "latitude": 6.9230404,
+      "longitude": 79.8496524,
+      "station_type": "station",
+      "osm_id": 6541919413
+    },
+    {
+      "station_name": "Kekanadura",
+      "latitude": 5.9606591,
+      "longitude": 80.5990478,
+      "station_type": "station",
+      "osm_id": 7483359602
+    },
+    {
+      "station_name": "Bambalapitiya",
+      "latitude": 6.893674,
+      "longitude": 79.8529894,
+      "station_type": "station",
+      "osm_id": 7571568170
+    },
+    {
+      "station_name": "Kollupitiya",
+      "latitude": 6.9113228,
+      "longitude": 79.8481929,
+      "station_type": "station",
+      "osm_id": 7571568171
+    },
+    {
+      "station_name": "Puwakpitiya",
+      "latitude": 6.9337144,
+      "longitude": 80.1880442,
+      "station_type": "station",
+      "osm_id": 8158766889
+    },
+    {
+      "station_name": "Eluthumadduval",
+      "latitude": 9.6521856,
+      "longitude": 80.2808064,
+      "station_type": "station",
+      "osm_id": 8710649328
+    },
+    {
+      "station_name": "Ambewela",
+      "latitude": 6.8773347,
+      "longitude": 80.8143421,
+      "station_type": "station",
+      "osm_id": 8972985817
+    },
+    {
+      "station_name": "Godagama",
+      "latitude": 6.8479029,
+      "longitude": 80.0328649,
+      "station_type": "station",
+      "osm_id": 8997200408
+    },
+    {
+      "station_name": "Ella Railway Station",
+      "latitude": 6.876147,
+      "longitude": 81.0474878,
+      "station_type": "station",
+      "osm_id": 9552182535
+    },
+    {
+      "station_name": "vavuniya Railway  station",
+      "latitude": 8.753866,
+      "longitude": 80.4936629,
+      "station_type": "station",
+      "osm_id": 9785228872
+    },
+    {
+      "station_name": "Dehiwala",
+      "latitude": 6.8509082,
+      "longitude": 79.8621137,
+      "station_type": "station",
+      "osm_id": 10046923330
+    },
+    {
+      "station_name": "Watareka",
+      "latitude": 6.8431734,
+      "longitude": 80.0598726,
+      "station_type": "station",
+      "osm_id": 10050777317
+    },
+    {
+      "station_name": "Panagoda",
+      "latitude": 6.846941,
+      "longitude": 80.0190057,
+      "station_type": "station",
+      "osm_id": 10050777326
+    },
+    {
+      "station_name": "Homagama",
+      "latitude": 6.8456046,
+      "longitude": 80.0042414,
+      "station_type": "station",
+      "osm_id": 10050777328
+    },
+    {
+      "station_name": "Homagama Hospital",
+      "latitude": 6.8457616,
+      "longitude": 79.992439,
+      "station_type": "station",
+      "osm_id": 10050777335
+    },
+    {
+      "station_name": "Malapalla",
+      "latitude": 6.8440838,
+      "longitude": 79.9750754,
+      "station_type": "station",
+      "osm_id": 10050777338
+    },
+    {
+      "station_name": "Pannipitiya",
+      "latitude": 6.8473816,
+      "longitude": 79.9488784,
+      "station_type": "station",
+      "osm_id": 10050777350
+    },
+    {
+      "station_name": "Maharagama",
+      "latitude": 6.8480166,
+      "longitude": 79.9271848,
+      "station_type": "station",
+      "osm_id": 10050777356
+    },
+    {
+      "station_name": "Waikkala",
+      "latitude": 7.2774201,
+      "longitude": 79.8602067,
+      "station_type": "halt",
+      "osm_id": 11028932205
+    },
+    {
+      "station_name": "Railway Station, Mannar",
+      "latitude": 8.9713411,
+      "longitude": 79.8937444,
+      "station_type": "station",
+      "osm_id": 11192254346
+    },
+    {
+      "station_name": "kotagala railway station",
+      "latitude": 6.9283117,
+      "longitude": 80.6086713,
+      "station_type": "station",
+      "osm_id": 11960031252
+    },
+    {
+      "station_name": "Pilimatalawa Railway Staition",
+      "latitude": 7.2669217,
+      "longitude": 80.5526682,
+      "station_type": "station",
+      "osm_id": 12389487403
+    },
+    {
+      "station_name": "Weherahena",
+      "latitude": 5.9570646,
+      "longitude": 80.5779236,
+      "station_type": "station",
+      "osm_id": 12514925408
+    },
+    {
+      "station_name": "Uduwara",
+      "latitude": 6.9303742,
+      "longitude": 81.0446989,
+      "station_type": "station",
+      "osm_id": 12628680967
+    },
+    {
+      "station_name": "Ganegoda",
+      "latitude": 7.2129312,
+      "longitude": 80.1052505,
+      "station_type": "station",
+      "osm_id": 12633608551
+    },
+    {
+      "station_name": "Thiruketheeswaram",
+      "latitude": 8.9154185,
+      "longitude": 79.9477753,
+      "station_type": "station",
+      "osm_id": 12641162740
+    },
+    {
+      "station_name": "Jaffna",
+      "latitude": 9.6654661,
+      "longitude": 80.0207059,
+      "station_type": "station",
+      "osm_id": 12643612533
+    },
+    {
+      "station_name": "Kachcheri",
+      "latitude": 9.6625172,
+      "longitude": 80.0287291,
+      "station_type": "halt",
+      "osm_id": 12643612534
+    },
+    {
+      "station_name": "Pattipola",
+      "latitude": 6.8558565,
+      "longitude": 80.8306009,
+      "station_type": "station",
+      "osm_id": 12662892465
+    },
+    {
+      "station_name": "Kadugoda",
+      "latitude": 6.9180501,
+      "longitude": 80.1348044,
+      "station_type": "station",
+      "osm_id": 12670315153
+    },
+    {
+      "station_name": "Gangoda",
+      "latitude": 7.2983135,
+      "longitude": 80.4534106,
+      "station_type": "station",
+      "osm_id": 12982392314
+    },
+    {
+      "station_name": "Boralessa",
+      "latitude": 7.319893,
+      "longitude": 79.8630959,
+      "station_type": "halt",
+      "osm_id": 13116777774
+    },
+    {
+      "station_name": "Colombo Fort",
+      "latitude": 6.9333986,
+      "longitude": 79.8503417,
+      "station_type": "station",
+      "osm_id": 13447631673
+    }
+  ]
+}

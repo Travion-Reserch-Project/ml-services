@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "road_name": "A6 Highway",
+        "road_class": "A",
+        "length_km": 430
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            80.0,
+            7.0
+          ],
+          [
+            80.1,
+            7.1
+          ]
+        ]
+      }
+    }
+  ]
+}

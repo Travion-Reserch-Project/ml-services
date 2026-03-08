@@ -184,7 +184,7 @@ def predict_weather_risk(request: PredictRequest):
         if service is None:
             return {"success": False, "error": "Weather service unavailable"}
 
-        result = service.predict_one(request.features.dict())
+        result = service.predict_one(request.features.model_dump())
 
         return {
             "success": True,
