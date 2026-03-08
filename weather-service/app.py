@@ -1,6 +1,7 @@
-#Predict Fitzpatrick skin type from a face image
-#Predict UV / weather-based risk using an ML model
-#Expose these capabilities via REST APIs for your mobile app
+# Predict Fitzpatrick skin type from a face image
+# Predict UV / weather-based risk using an ML model
+# Expose these capabilities via REST APIs for your mobile app
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -12,7 +13,6 @@ from PIL import Image
 import numpy as np
 from dotenv import load_dotenv
 from utils.fitzpatrick import preprocess_image, load_model
-from utils.validator import validate_human_skin
 
 # -------------------------------------------------
 # Logging configuration
@@ -23,21 +23,83 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load environment variables
+load_dotenv()
+
 # -------------------------------------------------
-# FastAPI app initialization
+# Global model state (populated at startup)
+# -------------------------------------------------
+fitzpatrick_model = None
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+weather_service = None
+
+
+# -------------------------------------------------
+# Lifespan: runs model loading ONCE at server start
+# -------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    All code before `yield` runs at startup.
+    All code after `yield` runs at shutdown.
+    """
+    global fitzpatrick_model, weather_service
+
+    logger.info("=" * 60)
+    logger.info("🚀 Server starting – loading ML models...")
+    logger.info("=" * 60)
+
+    # ── 1. Fitzpatrick CNN ──────────────────────────────────────
+    try:
+        fitzpatrick_model = load_model()
+        fitzpatrick_model.to(device)
+        fitzpatrick_model.eval()
+        logger.info("✓ Fitzpatrick skin-type model loaded")
+    except Exception as e:
+        logger.error(f"✗ Failed to load Fitzpatrick model: {e}")
+
+    # ── 2. Weather risk model (download if needed, then load) ───
+    logger.info("-" * 60)
+    logger.info("Checking / downloading weather ML models...")
+    try:
+        from utils.model_downloader import download_weather_models
+        downloaded = download_weather_models()
+        if downloaded:
+            logger.info(f"✓ Prepared {len(downloaded)} model artifact(s)")
+        else:
+            logger.warning("⚠️  No models downloaded – running in limited mode")
+    except Exception as e:
+        logger.error(f"✗ Failed to download weather models: {e}")
+
+    try:
+        from utils.weather_inference import WeatherRiskService
+        model_path = os.getenv("WEATHER_MODEL_FILE", "models/uv_risk_model.pkl")
+        if not os.path.exists(model_path):
+            logger.warning(f"⚠️  Weather model file not found at {model_path}")
+        weather_service = WeatherRiskService(model_path)
+        logger.info("✓ Weather risk service loaded")
+    except Exception as e:
+        logger.error(f"✗ Failed to load WeatherRiskService: {e}")
+
+    logger.info("=" * 60)
+    logger.info("✅ All models ready – server is accepting requests")
+    logger.info("=" * 60)
+
+    yield  # ← server is live here
+
+    # ── Shutdown cleanup (optional) ─────────────────────────────
+    logger.info("🛑 Server shutting down")
+
+
+# -------------------------------------------------
+# FastAPI app initialization (with lifespan)
 # -------------------------------------------------
 app = FastAPI(
     title="Weather Safety Service API",
     description="UV & weather-based risk prediction service for tourists",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
-
-#Loads CNN model once
-fitzpatrick_model = load_model()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Load environment variables
-load_dotenv()
 
 # -------------------------------------------------
 # CORS configuration
@@ -50,65 +112,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------------------------------
-# Lazy-loaded state
-# -------------------------------------------------
-weather_service = None
-models_downloaded = False
-
 
 # -------------------------------------------------
-# Ensure models are downloaded, Downloads ML models
-# -------------------------------------------------
-def ensure_models_downloaded():
-    global models_downloaded
-
-    if not models_downloaded:
-        logger.info("=" * 60)
-        logger.info("Checking for weather ML models...")
-        logger.info("=" * 60)
-
-        try:
-            from utils.model_downloader import download_weather_models
-            downloaded = download_weather_models()
-
-            if downloaded:
-                logger.info(f"✓ Prepared {len(downloaded)} model artifact(s)")
-            else:
-                logger.warning("⚠️ No models downloaded – running in limited mode")
-
-        except Exception as e:
-            logger.error(f"✗ Failed to download models: {e}")
-            logger.warning("⚠️ Service starting without trained model")
-
-        models_downloaded = True
-        logger.info("=" * 60)
-
-
-# -------------------------------------------------
-# Lazy-load inference service, Loads your UV risk ML model
-# -------------------------------------------------
-def get_weather_service():
-    global weather_service
-
-    if weather_service is None:
-        from utils.weather_inference import WeatherRiskService
-
-        model_path = os.getenv(
-            "WEATHER_MODEL_FILE",
-            "models/uv_risk_model.pkl"
-        )
-
-        if not os.path.exists(model_path):
-            logger.warning(f"⚠️ Model file not found at {model_path}")
-
-        weather_service = WeatherRiskService(model_path)
-
-    return weather_service
-
-
-# -------------------------------------------------
-# Request schemas -> Input validation, Prevents invalid data,Documents expected inputs, Protects ML model from bad values
+# Request schemas
 # -------------------------------------------------
 class WeatherFeatures(BaseModel):
     Skin_Type: int = Field(..., alias="Skin Type", ge=1, le=6)
@@ -126,6 +132,7 @@ class WeatherFeatures(BaseModel):
     class Config:
         allow_population_by_field_name = True
 
+
 class PredictRequest(BaseModel):
     features: WeatherFeatures
     user_location: Optional[str] = None
@@ -136,7 +143,7 @@ class BatchPredictRequest(BaseModel):
 
 
 # -------------------------------------------------
-# Root endpoint, Confirms service is running
+# Root endpoint
 # -------------------------------------------------
 @app.get("/")
 def root():
@@ -151,15 +158,19 @@ def root():
         }
     }
 
+
 # -------------------------------------------------
 # Fitzpatrick Skin Type Prediction Endpoint
-# User uploads face image, Image is validated (human skin check), Image is preprocessed, CNN predicts skin type (1–6), Result returned to frontend
 # -------------------------------------------------
 @app.post("/api/skin/fitzpatrick_predict")
-async def predict(file: UploadFile = File(...)):
+async def predict_fitzpatrick(file: UploadFile = File(...)):
+    if fitzpatrick_model is None:
+        raise HTTPException(status_code=503, detail="Fitzpatrick model not loaded")
+
     image_pil = Image.open(file.file).convert("RGB")
     image_np = np.array(image_pil)
 
+    from utils.validator import validate_human_skin
     validate_human_skin(image_np)
 
     image_tensor = preprocess_image(image_pil).to(device)
@@ -172,87 +183,66 @@ async def predict(file: UploadFile = File(...)):
 
 
 # -------------------------------------------------
-# Predict single instance -> Accepts weather + personal features, Runs ML model, Returns risk level
+# Predict single weather risk instance
 # -------------------------------------------------
 @app.post("/api/weather/predict")
 def predict_weather_risk(request: PredictRequest):
-    ensure_models_downloaded()
+    if weather_service is None:
+        raise HTTPException(status_code=503, detail="Weather risk model not loaded")
 
     try:
-        service = get_weather_service()
-
-        if service is None:
-            return {"success": False, "error": "Weather service unavailable"}
-
-        result = service.predict_one(request.features.dict())
-
+        result = weather_service.predict_one(request.features.dict())
         return {
             "success": True,
             "prediction": result,
             "location": request.user_location
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------------------------------------
-# Batch prediction -> Dataset testing, Research evaluation
+# Batch prediction
 # -------------------------------------------------
 @app.post("/api/weather/batch_predict")
 def batch_predict_weather_risk(request: BatchPredictRequest):
-    ensure_models_downloaded()
+    if weather_service is None:
+        raise HTTPException(status_code=503, detail="Weather risk model not loaded")
 
     try:
-        service = get_weather_service()
-
-        if service is None:
-            return {"success": False, "error": "Weather service unavailable"}
-
         items = [f.dict() for f in request.features_list]
-        results = service.predict_batch(items)
-
+        results = weather_service.predict_batch(items)
         return {
             "success": True,
             "predictions": results,
             "count": len(results)
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------------------------------------
-# HEALTH CHECK (EXACT FORMAT YOU REQUESTED) -> this confirms; Model loaded, Scaler loaded, Files exist
+# Health check
 # -------------------------------------------------
 @app.get("/api/weather/health")
 def health_check():
-    ensure_models_downloaded()
-    service = get_weather_service()
-
-    status = service.status() if service else {}
-
-    model_path = os.getenv(
-        "WEATHER_MODEL_FILE",
-        "models/uv_risk_gradient_boosting.pkl"
-    )
-
-    model_exists = os.path.exists(model_path)
+    status = weather_service.status() if weather_service else {}
+    model_path = os.getenv("WEATHER_MODEL_FILE", "models/uv_risk_gradient_boosting.pkl")
 
     return {
         "status": "healthy",
         "model_loaded": status.get("model") == "loaded",
         "scaler_loaded": status.get("scaler") == "loaded",
-        "model_file_exists": model_exists,
+        "model_file_exists": os.path.exists(model_path),
         "feature_count": status.get("feature_count"),
         "targets": ["low", "moderate", "high", "very high"]
     }
 
 
 # -------------------------------------------------
-# Run locally
+# Run locally:  python app.py
+# or:           uvicorn app:app --reload --port 8004
 # -------------------------------------------------
-# uvicorn app:app --reload --port 8004
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8002))
