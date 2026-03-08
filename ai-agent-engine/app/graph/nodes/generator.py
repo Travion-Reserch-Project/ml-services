@@ -182,6 +182,9 @@ def build_context_string(state: GraphState) -> str:
 def get_system_prompt(intent: Optional[IntentType], target_location: Optional[str] = None) -> str:
     """Get appropriate system prompt based on intent and location context."""
     if intent == IntentType.GREETING:
+        # When inside a location chat, greet with location context instead of generic welcome
+        if target_location:
+            return SYSTEM_PROMPTS["tourism_guide_location"].format(location_name=target_location)
         return SYSTEM_PROMPTS["greeting"]
     elif intent == IntentType.OFF_TOPIC:
         return SYSTEM_PROMPTS["off_topic"]
@@ -236,8 +239,11 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
     has_rag_docs = bool(state.get("retrieved_documents"))
     has_web_search = bool(state.get("web_search_results"))
 
+    # For location-specific greetings, treat as a tourism query so location context is used
+    is_location_greeting = (intent == IntentType.GREETING and bool(target_location))
+
     # Build user message with context
-    if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC]:
+    if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC] or is_location_greeting:
         # If we have a target location, explicitly mention it in the context
         location_context = f"\nYou are answering questions about: {target_location}\n" if target_location else ""
 
@@ -257,9 +263,17 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
             if source_lines:
                 source_instruction = f"\n\nIMPORTANT: End your response with these exact source lines (on separate lines):\n" + "\n".join(source_lines)
 
+        # For location greetings, override the user question with a welcome prompt
+        effective_query = (
+            f"The user just said \"{query}\". Give them a warm, exciting welcome to {target_location}. "
+            f"Briefly mention 2-3 highlights they can ask about (history, best time, photography, food, etc.). "
+            f"Keep it short and inviting — like a friendly guide greeting a visitor."
+            if is_location_greeting else query
+        )
+
         user_message = f"""Context Information:
 {location_context}{context}{correction_context}
-User Question: {query}
+User Question: {effective_query}
 
 Please provide a helpful response based on the context above.{' Address the correction issues mentioned.' if correction_instructions else ''}{source_instruction}"""
     else:
@@ -358,6 +372,13 @@ def generate_fallback_response(state: GraphState) -> str:
     target_location = state.get("target_location")
 
     if intent == IntentType.GREETING:
+        if target_location:
+            return (
+                f"👋 Ayubowan! Welcome to **{target_location}** — I'm your AI guide here.\n\n"
+                f"I can tell you about the history, best times to visit, photography tips, "
+                f"hidden gems, local food, and much more.\n\n"
+                f"💡 *What would you like to know about {target_location}?*"
+            )
         return ("Ayubowan! Welcome to Travion, your AI guide to Sri Lanka. "
                 "I can help you plan trips, find destinations, and learn about "
                 "Sri Lankan culture. What would you like to explore today?")

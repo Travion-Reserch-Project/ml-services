@@ -297,8 +297,12 @@ def route_by_intent(state: GraphState) -> Literal["generate", "retrieve", "web_s
         Next node name as string literal
     """
     intent = state.get("intent")
+    target_location = state.get("target_location")
 
     if intent == IntentType.GREETING:
+        # Location-specific greetings: retrieve so we can give a rich welcome
+        if target_location:
+            return "retrieve"
         return "generate"
     elif intent == IntentType.OFF_TOPIC:
         return "generate"
