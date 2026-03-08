@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     Attributes:
         message: User's query or message
         thread_id: Optional conversation thread ID for context persistence
+        user_id: Optional user ID for user-specific chat isolation
         stream: Whether to stream the response
     """
     message: str = Field(
@@ -31,6 +32,10 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = Field(
         None,
         description="Conversation thread ID for context persistence"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for user-specific chat history isolation"
     )
     stream: bool = Field(
         False,
@@ -67,6 +72,7 @@ class LocationChatRequest(BaseModel):
     Attributes:
         message: User's query or message about the location
         thread_id: Optional conversation thread ID for context persistence
+        user_id: Optional user ID for user-specific chat isolation
         location_name: The specific location to focus retrieval on
         user_preferences: Optional user preference scores for personalized responses
         conversation_history: Optional list of previous messages for context
@@ -81,6 +87,10 @@ class LocationChatRequest(BaseModel):
     thread_id: Optional[str] = Field(
         None,
         description="Conversation thread ID for context persistence"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for user-specific chat history isolation"
     )
     location_name: str = Field(
         ...,
@@ -248,6 +258,10 @@ class TourPlanGenerateRequest(BaseModel):
         None,
         description="Session ID for conversation continuity"
     )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for user-specific chat history isolation"
+    )
     preferences: Optional[List[str]] = Field(
         None,
         description="User preferences",
@@ -257,6 +271,30 @@ class TourPlanGenerateRequest(BaseModel):
         None,
         description="Optional user message for plan generation or refinement",
         examples=["I prefer early morning activities"]
+    )
+    user_preferences: Optional[UserPreferenceScores] = Field(
+        None,
+        description="User preference scores for personalized tour plan generation"
+    )
+    conversation_history: Optional[List[dict]] = Field(
+        None,
+        description="Previous conversation messages for plan refinement context"
+    )
+    selected_restaurant_ids: Optional[List[str]] = Field(
+        None,
+        description="IDs of restaurants the user selected from recommendations (e.g., ['rest_d1_lunch_2'])"
+    )
+    selected_accommodation_ids: Optional[List[str]] = Field(
+        None,
+        description="IDs of accommodations the user selected from recommendations (e.g., ['hotel_d1_2'])"
+    )
+    skip_restaurants: Optional[bool] = Field(
+        None,
+        description="If true, skip restaurant recommendations entirely"
+    )
+    skip_accommodations: Optional[bool] = Field(
+        None,
+        description="If true, skip accommodation recommendations entirely"
     )
 
     class Config:
@@ -278,7 +316,15 @@ class TourPlanGenerateRequest(BaseModel):
                 ],
                 "start_date": "2026-01-05",
                 "end_date": "2026-01-06",
-                "preferences": ["photography", "history"]
+                "preferences": ["photography", "history"],
+                "user_preferences": {
+                    "history": 0.8,
+                    "adventure": 0.5,
+                    "nature": 0.6,
+                    "relaxation": 0.3,
+                    "pace": "moderate",
+                    "budget": "mid-range"
+                }
             }
         }
 
@@ -483,6 +529,84 @@ class PhysicsGoldenHourRequest(BaseModel):
 
 
 # =============================================================================
+# CLEAR CHAT HISTORY REQUEST
+# =============================================================================
+
+class ClearChatHistoryRequest(BaseModel):
+    """
+    Request model for clearing chat history from LangGraph memory.
+
+    Attributes:
+        thread_id: The conversation thread ID to clear
+        user_id: The user ID for verification
+    """
+    thread_id: str = Field(
+        ...,
+        description="Conversation thread ID to clear"
+    )
+    user_id: str = Field(
+        ...,
+        description="User ID for verification"
+    )
+
+
+# =============================================================================
+# ADVANCED SEARCH SELECTION REQUEST (HITL)
+# =============================================================================
+
+class SelectionRequest(BaseModel):
+    """
+    Request model for the Human-in-the-Loop selection endpoint.
+
+    After the Advanced Multi-Step Search returns candidates with
+    `pending_user_selection=True`, the mobile app sends the user's
+    chosen candidate ID here to resume the paused LangGraph.
+    """
+    thread_id: str = Field(
+        ...,
+        description="The thread_id returned by the original search / tour-plan call"
+    )
+    selected_candidate_id: str = Field(
+        ...,
+        description="The `id` of the SearchCandidate the user selected"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for thread scoping (same as original request)"
+    )
+
+
+# =============================================================================
+# WEATHER INTERRUPT RESUME REQUEST (HITL)
+# =============================================================================
+
+class WeatherResumeRequest(BaseModel):
+    """
+    Request model for the Weather Interrupt resume endpoint.
+
+    After the Shadow Monitor detects severe weather and returns
+    ``interrupt_reason="USER_PROMPT_REQUIRED"`` with weather prompt
+    options, the mobile app sends the user's choice here to resume
+    the paused LangGraph.
+    """
+    thread_id: str = Field(
+        ...,
+        description="The thread_id returned by the original tour-plan call"
+    )
+    user_weather_choice: str = Field(
+        ...,
+        description=(
+            "The `id` of the weather option the user selected. "
+            "One of: 'switch_indoor', 'reschedule', 'keep'"
+        )
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID for thread scoping (same as original request)"
+    )
+
+
+# =============================================================================
 # SIMPLE API REQUESTS (Current Day Predictions)
 # =============================================================================
 
@@ -563,6 +687,26 @@ class UserPreferenceScores(BaseModel):
         ge=0.0,
         le=1.0,
         description="Interest in relaxation/spiritual experiences (0.0 - 1.0)"
+    )
+    pace: Optional[str] = Field(
+        None,
+        description="Preferred travel pace (e.g., 'relaxed', 'moderate', 'fast')"
+    )
+    budget: Optional[str] = Field(
+        None,
+        description="Budget level (e.g., 'budget', 'mid-range', 'luxury')"
+    )
+    group_size: Optional[str] = Field(
+        None,
+        description="Group size (e.g., 'solo', 'couple', 'family', 'group')"
+    )
+    dietary: Optional[List[str]] = Field(
+        None,
+        description="Dietary requirements or restrictions (e.g., ['vegetarian', 'halal'])"
+    )
+    accessibility: Optional[bool] = Field(
+        None,
+        description="Whether accessibility-friendly options are needed"
     )
 
 

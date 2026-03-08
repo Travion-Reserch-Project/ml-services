@@ -19,9 +19,15 @@ Endpoints:
     - GET /api/v1/graph: Graph visualization
 """
 
+import asyncio
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
+
+# Fix "too many file descriptors in select()" on Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 from datetime import datetime
 from typing import Optional
 
@@ -41,6 +47,7 @@ from .schemas import (
     GoldenHourRequest,
     EventImpactRequest,
     PhysicsGoldenHourRequest,
+    ClearChatHistoryRequest,
     ChatResponse,
     TourPlanResponse,
     TourPlanMetadataResponse,
@@ -52,6 +59,11 @@ from .schemas import (
     ItinerarySlotResponse,
     ConstraintViolationResponse,
     ShadowMonitorLogResponse,
+    StepResultResponse,
+    ClarificationQuestionResponse,
+    ClarificationOptionResponse,
+    CulturalTipResponse,
+    EventInfoResponse,
     # Event Sentinel schemas (Temporal-Spatial Correlation)
     ConstraintInfo,
     BridgeDayInfo,
@@ -64,6 +76,17 @@ from .schemas import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
+    # Hotel/Restaurant search
+    HotelSearchResultResponse,
+    HotelSearchResponse,
+    # Advanced Multi-Step Search (HITL)
+    SearchCandidateResponse,
+    AdvancedSearchResponse,
+    SelectionRequest,
+    WeatherResumeRequest,
+    # Restaurant/Accommodation recommendations
+    RestaurantRecommendationResponse,
+    AccommodationRecommendationResponse,
 )
 from .schemas.recommendation import (
     RecommendationRequest,
@@ -75,7 +98,7 @@ from .schemas.recommendation import (
     ConstraintCheck,
     PreferenceConfidence,
 )
-from .graph import get_agent, invoke_agent
+from .graph import get_agent, invoke_agent, resume_agent_with_selection, resume_agent_with_weather_choice
 from .graph.nodes.shadow_monitor import get_shadow_monitor
 from .tools import (
     get_crowdcast,
@@ -222,6 +245,21 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ News API: UNAVAILABLE")
             logger.warning(f"   └─ {news_health.error_message}")
 
+    # ChromaDB (Vector Store)
+    try:
+        from .graph.nodes.retrieval import get_vectordb_service
+        vectordb = get_vectordb_service()
+        if vectordb.enabled:
+            doc_count = vectordb.collection.count() if vectordb.collection else 0
+            logger.info(f"✅ ChromaDB: AVAILABLE ({doc_count} documents)")
+            health_monitor.report_success(ServiceType.CHROMADB)
+        else:
+            logger.warning("⚠️ ChromaDB: DISABLED (initialization failed)")
+            health_monitor.report_failure(ServiceType.CHROMADB, "VectorDB not enabled")
+    except Exception as e:
+        logger.error(f"❌ ChromaDB: FAILED - {e}")
+        health_monitor.report_failure(ServiceType.CHROMADB, str(e))
+
     # Initialize recommendation components
     try:
         recommender = get_recommender()
@@ -308,6 +346,22 @@ app.add_middleware(
 
 
 # =============================================================================
+# HELPER: User-scoped thread ID
+# =============================================================================
+
+def _build_user_thread_id(user_id: Optional[str], thread_id: Optional[str]) -> Optional[str]:
+    """
+    Build a user-scoped thread ID to ensure chat history isolation per user.
+    If user_id is provided, prefix the thread_id with user_id.
+    """
+    if not thread_id:
+        return None
+    if user_id:
+        return f"{user_id}_{thread_id}"
+    return thread_id
+
+
+# =============================================================================
 # MAIN CHAT ENDPOINT
 # =============================================================================
 
@@ -338,10 +392,13 @@ async def chat(request: ChatRequest):
         ChatResponse with agent's response and metadata
     """
     try:
+        # Build user-scoped thread_id for chat history isolation
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
         # Invoke the agent
         result = await invoke_agent(
             query=request.message,
-            thread_id=request.thread_id
+            thread_id=scoped_thread_id
         )
 
         # Check for errors
@@ -449,10 +506,13 @@ async def location_chat(request: LocationChatRequest):
             ]
             logger.info(f"Location chat includes {len(conversation_history)} previous messages")
 
+        # Build user-scoped thread_id for chat history isolation
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
         # Invoke the agent with location focus and conversation history
         result = await invoke_agent(
             query=enriched_query,
-            thread_id=request.thread_id,
+            thread_id=scoped_thread_id,
             target_location=request.location_name,
             conversation_history=conversation_history
         )
@@ -504,6 +564,190 @@ async def location_chat(request: LocationChatRequest):
 
 
 # =============================================================================
+# TOUR PLAN RESPONSE BUILDER (Shared by generate, refine, resume-weather)
+# =============================================================================
+
+def _build_tour_plan_response(result: dict, thread_id: str) -> TourPlanResponse:
+    """
+    Convert the raw LangGraph result dict into a TourPlanResponse model.
+    Re-used by generate, refine, and resume-weather endpoints.
+    """
+    # Build itinerary response
+    itinerary = []
+    for slot in (result.get("itinerary") or []):
+        itinerary.append(ItinerarySlotResponse(
+            time=slot.get("time", "09:00"),
+            location=slot.get("location", ""),
+            activity=slot.get("activity", ""),
+            duration_minutes=slot.get("duration_minutes", 60),
+            crowd_prediction=slot.get("crowd_prediction", 50),
+            lighting_quality=slot.get("lighting_quality", "good"),
+            notes=slot.get("notes"),
+            day=slot.get("day"),
+            order=slot.get("order"),
+            icon=slot.get("icon"),
+            highlight=slot.get("highlight", False),
+            ai_insight=slot.get("ai_insight"),
+            cultural_tip=slot.get("cultural_tip"),
+            ethical_note=slot.get("ethical_note"),
+            best_photo_time=slot.get("best_photo_time"),
+        ))
+
+    # Build metadata response
+    plan_metadata = result.get("tour_plan_metadata") or {}
+    metadata = TourPlanMetadataResponse(
+        match_score=plan_metadata.get("match_score", 85),
+        total_days=plan_metadata.get("total_days", 1),
+        total_locations=plan_metadata.get("total_locations", 1),
+        golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
+        crowd_optimized=plan_metadata.get("crowd_optimized", True),
+        event_aware=plan_metadata.get("event_aware", True),
+        preference_match_explanation=plan_metadata.get("preference_match_explanation"),
+    )
+
+    # Build constraint violations
+    constraints = None
+    if result.get("constraint_violations"):
+        constraints = [
+            ConstraintViolationResponse(
+                constraint_type=c.get("constraint_type", "unknown"),
+                description=c.get("description", ""),
+                severity=c.get("severity", "medium"),
+                suggestion=c.get("suggestion", "")
+            )
+            for c in result.get("constraint_violations", [])
+        ]
+
+    # Build reasoning logs
+    reasoning_logs = None
+    if result.get("shadow_monitor_logs"):
+        reasoning_logs = [
+            ShadowMonitorLogResponse(
+                timestamp=log.get("timestamp", ""),
+                check_type=log.get("check_type", ""),
+                result=log.get("result", ""),
+                details=log.get("details", "")
+            )
+            for log in result.get("shadow_monitor_logs", [])
+        ]
+
+    # Build step results
+    step_results = None
+    if result.get("step_results"):
+        step_results = [
+            StepResultResponse(
+                node=s.get("node", ""),
+                status=s.get("status", ""),
+                summary=s.get("summary", ""),
+                duration_ms=s.get("duration_ms", 0),
+            )
+            for s in result.get("step_results", [])
+        ]
+
+    # Build clarification question
+    clarification_question = None
+    clarification_data = result.get("clarification_question")
+    if clarification_data and result.get("clarification_needed"):
+        clarification_question = ClarificationQuestionResponse(
+            question=clarification_data.get("question", ""),
+            options=[
+                ClarificationOptionResponse(
+                    label=opt.get("label", ""),
+                    description=opt.get("description", ""),
+                    recommended=opt.get("recommended", False),
+                )
+                for opt in clarification_data.get("options", [])
+            ],
+            context=clarification_data.get("context", ""),
+            type=clarification_data.get("type", "single_select"),
+        )
+
+    # Build cultural tips
+    cultural_tips = None
+    if result.get("cultural_tips"):
+        cultural_tips = [
+            CulturalTipResponse(
+                location=tip.get("location", ""),
+                tip=tip.get("tip", ""),
+                category=tip.get("category", "cultural"),
+            )
+            for tip in result.get("cultural_tips", [])
+        ]
+
+    # Extract warnings and tips
+    warnings = result.get("warnings") or None
+    tips = result.get("tips") or None
+
+    # Build restaurant recommendations
+    restaurant_recommendations = None
+    raw_restaurant_recs = result.get("restaurant_recommendations")
+    if raw_restaurant_recs:
+        restaurant_recommendations = [
+            RestaurantRecommendationResponse(
+                id=r.get("id", ""),
+                name=r.get("name", ""),
+                rating=r.get("rating"),
+                cuisine_type=r.get("cuisine_type"),
+                price_range=r.get("price_range"),
+                url=r.get("url"),
+                description=r.get("description", ""),
+                near_location=r.get("near_location", ""),
+                meal_slot=r.get("meal_slot", "lunch"),
+                day=r.get("day", 1),
+            )
+            for r in raw_restaurant_recs
+        ]
+
+    # Build accommodation recommendations
+    accommodation_recommendations = None
+    raw_accommodation_recs = result.get("accommodation_recommendations")
+    if raw_accommodation_recs:
+        accommodation_recommendations = [
+            AccommodationRecommendationResponse(
+                id=r.get("id", ""),
+                name=r.get("name", ""),
+                rating=r.get("rating"),
+                price_range=r.get("price_range"),
+                url=r.get("url"),
+                description=r.get("description", ""),
+                near_location=r.get("near_location", ""),
+                check_in_day=r.get("check_in_day", 1),
+                type=r.get("type", "hotel"),
+            )
+            for r in raw_accommodation_recs
+        ]
+
+    return TourPlanResponse(
+        success=True,
+        thread_id=thread_id,
+        response=result.get("final_response") or "Tour plan generated successfully!",
+        itinerary=itinerary,
+        metadata=metadata,
+        constraints=constraints,
+        reasoning_logs=reasoning_logs,
+        warnings=warnings,
+        tips=tips,
+        step_results=step_results,
+        clarification_question=clarification_question,
+        cultural_tips=cultural_tips,
+        events=None,  # Events built inline by generate endpoint if needed
+        final_itinerary=result.get("final_itinerary"),
+        weather_data=result.get("weather_data"),
+        interrupt_reason=result.get("interrupt_reason"),
+        weather_interrupt=result.get("weather_interrupt", False),
+        weather_prompt_message=result.get("weather_prompt_message"),
+        weather_prompt_options=result.get("weather_prompt_options"),
+        pending_user_selection=result.get("pending_user_selection", False),
+        selection_cards=result.get("selection_cards"),
+        prompt_text=result.get("prompt_text"),
+        search_candidates=result.get("search_candidates"),
+        mcp_search_metadata=result.get("mcp_search_metadata"),
+        restaurant_recommendations=restaurant_recommendations,
+        accommodation_recommendations=accommodation_recommendations,
+    )
+
+
+# =============================================================================
 # TOUR PLAN GENERATION ENDPOINT
 # =============================================================================
 
@@ -542,11 +786,12 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
         TourPlanResponse with optimized itinerary and metadata
     """
     import uuid
-    
+
     try:
-        # Generate or use provided thread_id
-        thread_id = request.thread_id or f"tour_{uuid.uuid4().hex[:12]}"
-        
+        # Generate or use provided thread_id, scoped to user
+        raw_thread_id = request.thread_id or f"tour_{uuid.uuid4().hex[:12]}"
+        thread_id = _build_user_thread_id(request.user_id, raw_thread_id) or raw_thread_id
+
         # Build tour plan context
         tour_plan_context = {
             "selected_locations": [
@@ -563,6 +808,11 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
             "end_date": request.end_date,
             "preferences": request.preferences,
             "constraints": None,
+            # Restaurant/accommodation selection fields (for refine flow)
+            "selected_restaurant_ids": request.selected_restaurant_ids,
+            "selected_accommodation_ids": request.selected_accommodation_ids,
+            "skip_restaurants": request.skip_restaurants,
+            "skip_accommodations": request.skip_accommodations,
         }
         
         # Build the query message
@@ -599,6 +849,9 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
                 icon=slot.get("icon"),
                 highlight=slot.get("highlight", False),
                 ai_insight=slot.get("ai_insight"),
+                cultural_tip=slot.get("cultural_tip"),
+                ethical_note=slot.get("ethical_note"),
+                best_photo_time=slot.get("best_photo_time"),
             ))
         
         # Build metadata response
@@ -610,6 +863,7 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
             golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
             crowd_optimized=plan_metadata.get("crowd_optimized", True),
             event_aware=plan_metadata.get("event_aware", True),
+            preference_match_explanation=plan_metadata.get("preference_match_explanation"),
         )
         
         # Build constraint violations
@@ -638,16 +892,160 @@ async def generate_tour_plan(request: TourPlanGenerateRequest):
                 for log in result.get("shadow_monitor_logs", [])
             ]
         
+        # Build step results
+        step_results = None
+        if result.get("step_results"):
+            step_results = [
+                StepResultResponse(
+                    node=s.get("node", ""),
+                    status=s.get("status", ""),
+                    summary=s.get("summary", ""),
+                    duration_ms=s.get("duration_ms", 0),
+                )
+                for s in result.get("step_results", [])
+            ]
+
+        # Build clarification question
+        clarification_question = None
+        clarification_data = result.get("clarification_question")
+        if clarification_data and result.get("clarification_needed"):
+            clarification_question = ClarificationQuestionResponse(
+                question=clarification_data.get("question", ""),
+                options=[
+                    ClarificationOptionResponse(
+                        label=opt.get("label", ""),
+                        description=opt.get("description", ""),
+                        recommended=opt.get("recommended", False),
+                    )
+                    for opt in clarification_data.get("options", [])
+                ],
+                context=clarification_data.get("context", ""),
+                type=clarification_data.get("type", "single_select"),
+            )
+
+        # Build cultural tips
+        cultural_tips = None
+        if result.get("cultural_tips"):
+            cultural_tips = [
+                CulturalTipResponse(
+                    location=tip.get("location", ""),
+                    tip=tip.get("tip", ""),
+                    category=tip.get("category", "cultural"),
+                )
+                for tip in result.get("cultural_tips", [])
+            ]
+
+        # Extract warnings and tips
+        warnings = result.get("warnings") or None
+        tips = result.get("tips") or None
+
+        # Build events info from event data
+        events = None
+        event_data = result.get("event_data") or {}
+        if event_data:
+            events_list = []
+            # Poya days
+            for poya in event_data.get("poya_days", []):
+                if isinstance(poya, dict):
+                    events_list.append(EventInfoResponse(
+                        date=poya.get("date", ""),
+                        name=poya.get("name", "Poya Day"),
+                        type="poya",
+                        impact=f"Crowd modifier: {poya.get('crowd_modifier', 1.0)}x",
+                        warnings=poya.get("warnings", []),
+                    ))
+                elif isinstance(poya, str):
+                    events_list.append(EventInfoResponse(
+                        date=poya,
+                        name="Poya Full Moon Day",
+                        type="poya",
+                        impact="Alcohol sales banned. Expect higher crowds at religious sites.",
+                        warnings=["Alcohol sales banned island-wide on Poya days"],
+                    ))
+            # Holidays
+            for holiday in event_data.get("holidays", []):
+                if isinstance(holiday, dict):
+                    events_list.append(EventInfoResponse(
+                        date=holiday.get("date", ""),
+                        name=holiday.get("name", "Holiday"),
+                        type="holiday",
+                        impact=holiday.get("impact", ""),
+                        warnings=holiday.get("warnings", []),
+                    ))
+                elif isinstance(holiday, str):
+                    events_list.append(EventInfoResponse(
+                        date="",
+                        name=holiday,
+                        type="holiday",
+                        impact="Public holiday — some businesses may be closed.",
+                        warnings=[],
+                    ))
+            if events_list:
+                events = events_list
+
+        # Build restaurant recommendations
+        restaurant_recommendations = None
+        raw_restaurant_recs = result.get("restaurant_recommendations")
+        if raw_restaurant_recs:
+            restaurant_recommendations = [
+                RestaurantRecommendationResponse(
+                    id=r.get("id", ""),
+                    name=r.get("name", ""),
+                    rating=r.get("rating"),
+                    cuisine_type=r.get("cuisine_type"),
+                    price_range=r.get("price_range"),
+                    url=r.get("url"),
+                    description=r.get("description", ""),
+                    near_location=r.get("near_location", ""),
+                    meal_slot=r.get("meal_slot", "lunch"),
+                    day=r.get("day", 1),
+                )
+                for r in raw_restaurant_recs
+            ]
+
+        # Build accommodation recommendations
+        accommodation_recommendations = None
+        raw_accommodation_recs = result.get("accommodation_recommendations")
+        if raw_accommodation_recs:
+            accommodation_recommendations = [
+                AccommodationRecommendationResponse(
+                    id=r.get("id", ""),
+                    name=r.get("name", ""),
+                    rating=r.get("rating"),
+                    price_range=r.get("price_range"),
+                    url=r.get("url"),
+                    description=r.get("description", ""),
+                    near_location=r.get("near_location", ""),
+                    check_in_day=r.get("check_in_day", 1),
+                    type=r.get("type", "hotel"),
+                )
+                for r in raw_accommodation_recs
+            ]
+
         return TourPlanResponse(
             success=True,
             thread_id=thread_id,
-            response=result.get("final_response", "Tour plan generated successfully!"),
+            response=result.get("final_response") or ("I need a bit more information to create the best plan for you." if result.get("clarification_needed") else "Tour plan generated successfully!"),
             itinerary=itinerary,
             metadata=metadata,
             constraints=constraints,
             reasoning_logs=reasoning_logs,
-            warnings=None,  # TODO: Extract from constraints
-            tips=None,  # TODO: Extract from response
+            warnings=warnings,
+            tips=tips,
+            step_results=step_results,
+            clarification_question=clarification_question,
+            cultural_tips=cultural_tips,
+            events=events,
+            final_itinerary=result.get("final_itinerary"),
+            weather_data=result.get("weather_data"),
+            interrupt_reason=result.get("interrupt_reason"),
+            restaurant_recommendations=restaurant_recommendations,
+            accommodation_recommendations=accommodation_recommendations,
+            # HITL selection fields (restaurant selection during plan generation)
+            pending_user_selection=result.get("pending_user_selection", False),
+            selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
+            search_candidates=None,
         )
         
     except HTTPException:
@@ -691,6 +1089,404 @@ async def refine_tour_plan(request: TourPlanGenerateRequest):
     
     # Use the same generate logic with the existing thread_id
     return await generate_tour_plan(request)
+
+
+# =============================================================================
+# HOTEL / RESTAURANT SEARCH ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/hotel-search",
+    response_model=HotelSearchResponse,
+    tags=["Tour Planning"],
+    summary="Search for hotels, restaurants, or activities near a location",
+    description="""
+    Search for accommodation, dining, or nightlife options near a specified location
+    using real-time web search (Tavily).
+
+    Returns 3-5 structured results with name, price range, rating, and booking links.
+
+    Search types are auto-detected from the query:
+    - Hotels/accommodation: "hotels near Sigiriya", "where to stay in Galle"
+    - Restaurants/dining: "restaurants in Colombo", "best food near Ella"
+    - Bars/nightlife: "nightlife in Mirissa", "bars near Unawatuna"
+    """
+)
+async def hotel_search(query: str, location: Optional[str] = None):
+    """
+    Hotel/Restaurant search endpoint.
+
+    Args:
+        query: Natural language search query (e.g., "best hotels near Sigiriya")
+        location: Optional explicit location name (overrides extraction from query)
+
+    Returns:
+        HotelSearchResponse with structured search results
+    """
+    try:
+        result = await invoke_agent(
+            query=query,
+            target_location=location,
+        )
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        hotel_results = result.get("hotel_search_results") or []
+
+        results_response = [
+            HotelSearchResultResponse(
+                name=r.get("name", ""),
+                type=r.get("type", "hotel"),
+                price_range=r.get("price_range"),
+                rating=r.get("rating"),
+                url=r.get("url"),
+                description=r.get("description", ""),
+                distance_from_location=r.get("distance_from_location"),
+                location_name=r.get("location_name", ""),
+            )
+            for r in hotel_results
+        ]
+
+        # Determine search type from query
+        from .graph.nodes.hotel_search import _determine_search_type
+        search_type = _determine_search_type(query)
+
+        return HotelSearchResponse(
+            success=True,
+            query=query,
+            search_type=search_type,
+            location=location or result.get("target_location", "Sri Lanka"),
+            results=results_response,
+            total_results=len(results_response),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Hotel search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# ADVANCED SEARCH SELECTION (HITL RESUME) ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/select",
+    tags=["Tour Planning"],
+    summary="Submit user selection to resume the paused search graph",
+    description="""
+    **Human-in-the-Loop (HITL) resume endpoint.**
+
+    After the tour-plan or hotel-search flow returns candidates with
+    `pending_user_selection=True`, the mobile app calls this endpoint
+    with the `thread_id` and the chosen `selected_candidate_id`.
+
+    The paused LangGraph will:
+    1. Inject the selection into state
+    2. Run the **Selection Handler** node
+       - Event Sentinel constraint re-check
+       - Haversine travel-time recalculation
+    3. Continue the remaining graph (verify → tour plan)
+    4. Return the re-optimised result
+    """
+)
+async def submit_selection(request: SelectionRequest):
+    """
+    Resume the paused LangGraph after user selects a search candidate.
+
+    Works for both:
+    - Advanced search HITL (hotel/restaurant discovery)
+    - Restaurant selection HITL (during tour plan generation)
+
+    Args:
+        request: SelectionRequest with thread_id and selected_candidate_id
+
+    Returns:
+        Full tour plan response when the graph completes a plan,
+        or AdvancedSearchResponse for simple search selections.
+    """
+    try:
+        # The thread_id from the client is already user-scoped (returned by
+        # the generate endpoint).  Do NOT re-scope — that would create a
+        # double-prefixed ID that doesn't match the checkpoint.
+        scoped_thread_id = request.thread_id
+
+        logger.info(
+            f"HITL selection received — thread={scoped_thread_id}, "
+            f"candidate={request.selected_candidate_id}"
+        )
+
+        # Resume the graph
+        result = await resume_agent_with_selection(
+            thread_id=scoped_thread_id,
+            selected_candidate_id=request.selected_candidate_id,
+        )
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        # --- If the resumed graph produced a tour plan OR needs another HITL
+        #     selection step, return TourPlanResponse ---
+        if result.get("itinerary") or result.get("final_itinerary") or result.get("pending_user_selection"):
+            itinerary = []
+            for slot in (result.get("itinerary") or []):
+                itinerary.append(ItinerarySlotResponse(
+                    time=slot.get("time", "09:00"),
+                    location=slot.get("location", ""),
+                    activity=slot.get("activity", ""),
+                    duration_minutes=slot.get("duration_minutes", 60),
+                    crowd_prediction=slot.get("crowd_prediction", 50),
+                    lighting_quality=slot.get("lighting_quality", "good"),
+                    notes=slot.get("notes"),
+                    day=slot.get("day"),
+                    order=slot.get("order"),
+                    icon=slot.get("icon"),
+                    highlight=slot.get("highlight", False),
+                    ai_insight=slot.get("ai_insight"),
+                    cultural_tip=slot.get("cultural_tip"),
+                    ethical_note=slot.get("ethical_note"),
+                    best_photo_time=slot.get("best_photo_time"),
+                ))
+
+            plan_metadata = result.get("tour_plan_metadata") or {}
+            metadata = TourPlanMetadataResponse(
+                match_score=plan_metadata.get("match_score", 85),
+                total_days=plan_metadata.get("total_days", 1),
+                total_locations=plan_metadata.get("total_locations", 1),
+                golden_hour_optimized=plan_metadata.get("golden_hour_optimized", True),
+                crowd_optimized=plan_metadata.get("crowd_optimized", True),
+                event_aware=plan_metadata.get("event_aware", True),
+                preference_match_explanation=plan_metadata.get("preference_match_explanation"),
+            )
+
+            restaurant_recommendations = None
+            raw_recs = result.get("restaurant_recommendations")
+            if raw_recs:
+                # Field is now List[Dict] — convert any non-dict items to plain dicts
+                restaurant_recommendations = [
+                    dict(r) if isinstance(r, dict) else
+                    r.model_dump() if hasattr(r, "model_dump") else
+                    dict(r)
+                    for r in raw_recs
+                ]
+
+            cultural_tips = None
+            if result.get("cultural_tips"):
+                cultural_tips = [
+                    CulturalTipResponse(
+                        location=tip.get("location", ""),
+                        tip=tip.get("tip", ""),
+                        category=tip.get("category", "cultural"),
+                    )
+                    for tip in result.get("cultural_tips", [])
+                ]
+
+            step_results = None
+            if result.get("step_results"):
+                step_results = [
+                    StepResultResponse(
+                        node=s.get("node", ""),
+                        status=s.get("status", ""),
+                        summary=s.get("summary", ""),
+                        duration_ms=s.get("duration_ms", 0),
+                    )
+                    for s in result.get("step_results", [])
+                ]
+
+            return TourPlanResponse(
+                success=True,
+                thread_id=scoped_thread_id,
+                response=result.get("final_response") or "Tour plan generated with your restaurant selection!",
+                itinerary=itinerary,
+                metadata=metadata,
+                step_results=step_results,
+                cultural_tips=cultural_tips,
+                final_itinerary=result.get("final_itinerary"),
+                weather_data=result.get("weather_data"),
+                restaurant_recommendations=restaurant_recommendations,
+                pending_user_selection=result.get("pending_user_selection", False),
+                selection_cards=result.get("selection_cards"),
+                prompt_text=result.get("prompt_text"),
+                weather_interrupt=result.get("weather_interrupt", False),
+                weather_prompt_message=result.get("weather_prompt_message"),
+                weather_prompt_options=result.get("weather_prompt_options"),
+            )
+
+        # --- Otherwise, return AdvancedSearchResponse (hotel/restaurant discovery) ---
+        # Build candidate responses
+        candidates = [
+            SearchCandidateResponse(
+                id=c.get("id", ""),
+                name=c.get("name", ""),
+                type=c.get("type", "hotel"),
+                description=c.get("description", ""),
+                price_range=c.get("price_range"),
+                rating=c.get("rating"),
+                opening_hours=c.get("opening_hours"),
+                lat=c.get("lat"),
+                lng=c.get("lng"),
+                url=c.get("url"),
+                location_name=c.get("location_name", ""),
+                vibe_match_score=c.get("vibe_match_score"),
+            )
+            for c in (result.get("search_candidates") or [])
+        ]
+
+        selected = result.get("selected_search_candidate") or {}
+
+        return AdvancedSearchResponse(
+            success=True,
+            query=result.get("query", ""),
+            search_type=selected.get("type", "hotel"),
+            location=selected.get("location_name", ""),
+            vibe="",
+            candidates=candidates,
+            total_candidates=len(candidates),
+            pending_user_selection=result.get("pending_user_selection", False),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Selection endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# WEATHER INTERRUPT RESUME (HITL) ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/resume-weather",
+    response_model=TourPlanResponse,
+    tags=["Tour Planning"],
+    summary="Resume the paused graph after a weather interrupt decision",
+    description="""
+    **Human-in-the-Loop (HITL) weather resume endpoint.**
+
+    After the Shadow Monitor detects severe weather and the tour-plan
+    response returns `weather_interrupt=True` with a prompt message and
+    options, the mobile app calls this endpoint with the `thread_id`
+    and the user's chosen `user_weather_choice`.
+
+    Valid choices:
+    - `switch_indoor` — Replace outdoor stops with indoor alternatives
+    - `reschedule` — Move affected stops to a different time/day
+    - `keep` — Keep the original plan despite weather warnings
+
+    The paused LangGraph will:
+    1. Inject the weather choice into state
+    2. Continue from the shadow_monitor node
+    3. Re-run Event Sentinel + Haversine constraint checks
+    4. Return the re-optimised tour plan
+    """
+)
+async def resume_weather(request: WeatherResumeRequest):
+    """
+    Resume the paused LangGraph after user decides on a weather action.
+
+    Args:
+        request: WeatherResumeRequest with thread_id and user_weather_choice
+
+    Returns:
+        TourPlanResponse with the re-optimised itinerary
+    """
+    try:
+        # The thread_id from the client is already user-scoped (returned by
+        # the generate endpoint).  Do NOT re-scope — that would create a
+        # double-prefixed ID that doesn't match the checkpoint.
+        scoped_thread_id = request.thread_id
+
+        logger.info(
+            f"HITL weather resume — thread={scoped_thread_id}, "
+            f"choice={request.user_weather_choice}"
+        )
+
+        # Validate the choice
+        valid_choices = {"switch_indoor", "reschedule", "keep"}
+        if request.user_weather_choice not in valid_choices:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid weather choice '{request.user_weather_choice}'. "
+                    f"Must be one of: {', '.join(sorted(valid_choices))}"
+                ),
+            )
+
+        # Resume the graph with the weather choice
+        result = await resume_agent_with_weather_choice(
+            thread_id=scoped_thread_id,
+            user_choice=request.user_weather_choice,
+        )
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        # Build standard tour plan response
+        return _build_tour_plan_response(result, scoped_thread_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather resume endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# CLEAR CHAT HISTORY ENDPOINT
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/chat/clear-history",
+    tags=["Chat"],
+    summary="Clear chat history for a thread",
+    description="""
+    Clear the LangGraph checkpoint memory for a specific thread.
+    This removes the conversation history stored in the agent's memory
+    for the given user and thread combination.
+    """
+)
+async def clear_chat_history(request: ClearChatHistoryRequest):
+    """
+    Clear chat history endpoint.
+
+    Args:
+        request: ClearChatHistoryRequest with thread_id and user_id
+
+    Returns:
+        Success status
+    """
+    try:
+        # Build user-scoped thread_id
+        scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+        if not scoped_thread_id:
+            scoped_thread_id = request.thread_id
+
+        # Clear the memory for this thread
+        agent = get_agent()
+        if agent.memory and hasattr(agent.memory, 'storage'):
+            # MemorySaver stores checkpoints in a dict keyed by thread_id
+            # Remove all checkpoints for this thread
+            keys_to_remove = [
+                key for key in agent.memory.storage.keys()
+                if isinstance(key, tuple) and len(key) >= 1 and key[0] == scoped_thread_id
+            ]
+            for key in keys_to_remove:
+                del agent.memory.storage[key]
+
+            logger.info(f"Cleared {len(keys_to_remove)} checkpoint(s) for thread: {scoped_thread_id}")
+
+        return {
+            "success": True,
+            "message": f"Chat history cleared for thread",
+            "thread_id": request.thread_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Clear chat history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
@@ -1694,6 +2490,21 @@ async def health_check():
         components["news_api"] = f"degraded: {news_health.error_message}"
     else:
         components["news_api"] = "not_configured (optional)"
+
+    # ChromaDB (Vector Store)
+    try:
+        from .graph.nodes.retrieval import get_vectordb_service
+        vectordb = get_vectordb_service()
+        if vectordb.enabled:
+            doc_count = vectordb.collection.count() if vectordb.collection else 0
+            components["chromadb"] = f"available ({doc_count} documents)"
+            health_monitor.report_success(ServiceType.CHROMADB)
+        else:
+            components["chromadb"] = "disabled"
+            health_monitor.report_failure(ServiceType.CHROMADB, "VectorDB not enabled")
+    except Exception as e:
+        components["chromadb"] = f"error: {str(e)}"
+        health_monitor.report_failure(ServiceType.CHROMADB, str(e))
 
     # Physics Engine
     try:
