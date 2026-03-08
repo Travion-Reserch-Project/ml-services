@@ -8,6 +8,7 @@ Combines vector search, text processing, and LLM generation.
 import os
 import logging
 import time
+import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -48,6 +49,8 @@ class RAGService:
         self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "4000"))
         self.default_top_k = int(os.getenv("RAG_TOP_K", "5"))
         self.min_similarity = float(os.getenv("RAG_MIN_SIMILARITY", "0.7"))
+        self.max_context_docs_for_rag = int(os.getenv("RAG_CONTEXT_DOCS", "4"))
+        self.max_doc_chars = int(os.getenv("RAG_MAX_DOC_CHARS", "350"))
         
         # Load prompt templates
         self.prompts = self._load_prompts()
@@ -216,10 +219,15 @@ Answer:"""
         """
         try:
             # Build context from results
-            context = self._build_context(results)
+            context = self._build_context(results[: self.max_context_docs_for_rag])
             
             # Truncate if needed
             context = truncate_context(context, self.max_context_tokens)
+            logger.info(
+                "RAG context prepared: %s chars (~%s tokens)",
+                len(context),
+                len(context) // 4,
+            )
             
             # Select prompt template
             if self.text_processor.is_fare_query(query):
@@ -260,6 +268,7 @@ Answer:"""
             Formatted context string
         """
         context_parts = []
+        seen_signatures = set()
         
         for i, result in enumerate(results, 1):
             # Format metadata
@@ -278,16 +287,73 @@ Answer:"""
                 meta_parts.append(f"Location: {meta.location or meta.location_en}")
             if meta.source:
                 meta_parts.append(f"Source: {meta.source}")
+
+            compact_content = self._compact_content_for_context(result.content)
+            signature = f"{meta.category or ''}|{compact_content.lower()}"
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
             
             # Build context entry
-            context_entry = f"[Document {i}]"
+            context_entry = f"[Document {len(context_parts) + 1}]"
             if meta_parts:
                 context_entry += f"\n{' | '.join(meta_parts)}"
-            context_entry += f"\n{result.content}\n"
+            context_entry += f"\n{compact_content}\n"
             
             context_parts.append(context_entry)
         
         return "\n".join(context_parts)
+
+    def _compact_content_for_context(self, content: str) -> str:
+        """Compress verbose retrieved content into token-efficient evidence text."""
+        text = content.strip()
+
+        # Handle JSON-like transport records (e.g., city transport analysis)
+        if text.startswith("{"):
+            try:
+                obj = json.loads(text)
+                if isinstance(obj, dict):
+                    if "city_name" in obj:
+                        city = obj.get("city_name", "Unknown")
+                        has_rail = obj.get("has_railway_access")
+                        has_bus = obj.get("has_bus_access")
+                        station = (obj.get("nearest_railway_station") or {}).get("station_name")
+                        dist = obj.get("distance_to_nearest_railway_km")
+                        return (
+                            f"City: {city}. Railway access: {has_rail}. Bus access: {has_bus}. "
+                            f"Nearest rail station: {station}. Rail distance: {dist} km."
+                        )[: self.max_doc_chars]
+
+                    if "name" in obj and "location" in obj:
+                        return (
+                            f"Station: {obj.get('name')}. Location: {obj.get('location')}."
+                        )[: self.max_doc_chars]
+            except Exception:
+                pass
+
+        # Handle OSM feature style text blocks
+        if "Feature Type:" in text and "Properties:" in text:
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            props = {}
+            for line in lines:
+                if ":" in line and not line.startswith("Feature Type") and not line.startswith("Properties"):
+                    key, val = line.split(":", 1)
+                    props[key.strip().lower()] = val.strip()
+
+            feature_type = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("Feature Type:")), "Unknown")
+            name = props.get("name")
+            highway = props.get("highway")
+            ref = props.get("ref")
+            lanes = props.get("lanes")
+            summary = (
+                f"Feature: {feature_type}. Name: {name}. Class: {highway}. "
+                f"Ref: {ref}. Lanes: {lanes}."
+            )
+            return summary[: self.max_doc_chars]
+
+        # Generic fallback: keep only leading chunk
+        one_line = " ".join(text.split())
+        return one_line[: self.max_doc_chars]
     
     def _create_fallback_answer(self, results: List[SearchResult]) -> str:
         """
