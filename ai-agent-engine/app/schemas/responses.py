@@ -27,9 +27,6 @@ class ItinerarySlotResponse(BaseModel):
         icon: Icon name for UI display
         highlight: Whether this is a highlighted activity
         ai_insight: AI-generated insight for this activity
-        cultural_tip: Cultural etiquette tip for this activity
-        ethical_note: Ethical note (e.g., photography restrictions)
-        best_photo_time: Best time for photography at this location
     """
     time: str
     location: str
@@ -43,9 +40,6 @@ class ItinerarySlotResponse(BaseModel):
     icon: Optional[str] = None
     highlight: Optional[bool] = False
     ai_insight: Optional[str] = None
-    cultural_tip: Optional[str] = None
-    ethical_note: Optional[str] = None
-    best_photo_time: Optional[str] = None
 
 
 class ConstraintViolationResponse(BaseModel):
@@ -139,7 +133,6 @@ class TourPlanMetadataResponse(BaseModel):
         golden_hour_optimized: Whether golden hour is optimized
         crowd_optimized: Whether crowd levels are optimized
         event_aware: Whether events/holidays are considered
-        preference_match_explanation: Why this plan matches user preferences
     """
     match_score: int = Field(default=85, ge=0, le=100)
     total_days: int = Field(default=1, ge=1)
@@ -147,233 +140,6 @@ class TourPlanMetadataResponse(BaseModel):
     golden_hour_optimized: bool = True
     crowd_optimized: bool = True
     event_aware: bool = True
-    preference_match_explanation: Optional[str] = None
-
-
-class StepResultResponse(BaseModel):
-    """Step result from the agentic processing pipeline."""
-    node: str
-    status: str
-    summary: str
-    duration_ms: float = 0
-
-
-class ClarificationOptionResponse(BaseModel):
-    """A single option in a clarification question."""
-    label: str
-    description: str
-    recommended: bool = False
-
-
-class ClarificationQuestionResponse(BaseModel):
-    """Structured clarification question for user interaction."""
-    question: str
-    options: List[ClarificationOptionResponse]
-    context: str
-    type: str = "single_select"
-
-
-class CulturalTipResponse(BaseModel):
-    """Cultural tip for a specific location."""
-    location: str
-    tip: str
-    category: str = "cultural"
-
-
-class EventInfoResponse(BaseModel):
-    """Special event or holiday info for the trip dates."""
-    date: str
-    name: str
-    type: str = "holiday"  # 'poya', 'holiday', 'festival', 'school_holiday'
-    impact: str = ""
-    warnings: List[str] = Field(default_factory=list)
-
-
-class RestaurantRecommendationResponse(BaseModel):
-    """A restaurant recommendation for a meal slot in the itinerary."""
-    id: str = Field(..., description="Unique selection ID (e.g., rest_d1_lunch_1)")
-    name: str = Field(..., description="Restaurant name")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Rating out of 5")
-    cuisine_type: Optional[str] = Field(None, description="Cuisine type (e.g., Sri Lankan, International)")
-    price_range: Optional[str] = Field(None, description="Price indicator ($, $$, $$$)")
-    url: Optional[str] = Field(None, description="Link to reviews/details")
-    description: str = Field(..., description="Short description")
-    near_location: str = Field(..., description="Which itinerary location this is near")
-    meal_slot: str = Field(..., description="breakfast, lunch, or dinner")
-    day: int = Field(..., ge=1, description="Day number of the trip")
-
-
-class AccommodationRecommendationResponse(BaseModel):
-    """An accommodation recommendation for overnight stays."""
-    id: str = Field(..., description="Unique selection ID (e.g., hotel_d1_1)")
-    name: str = Field(..., description="Hotel/resort name")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Rating out of 5")
-    price_range: Optional[str] = Field(None, description="Price indicator ($, $$, $$$)")
-    url: Optional[str] = Field(None, description="Link to booking/details")
-    description: str = Field(..., description="Short description")
-    near_location: str = Field(..., description="Near which itinerary location")
-    check_in_day: int = Field(..., ge=1, description="Day number for check-in")
-    type: str = Field(..., description="hotel, resort, or guesthouse")
-    image_url: Optional[str] = Field(None, description="Accommodation photo URL")
-
-
-class VisualAssetResponse(BaseModel):
-    """Visual asset metadata for a single itinerary stop (map markers & mobile cards)."""
-    map_marker_icon: str = Field(
-        ...,
-        description="Icon type for map marker: Hotel, Food, Party, Attraction, Nature, Temple, Camera, Transport"
-    )
-    summary: str = Field(
-        ...,
-        description="One-line summary optimized for a mobile UI card (~60 chars)"
-    )
-
-
-class SearchCandidateResponse(BaseModel):
-    """A grounded search candidate from the Advanced Multi-Step Search pipeline."""
-    id: str = Field(..., description="Unique candidate ID")
-    name: str = Field(..., description="Establishment or event name")
-    type: str = Field(..., description="hotel, restaurant, bar, or event")
-    description: str = Field(..., description="Short description (~300 chars)")
-    price_range: Optional[str] = Field(None, description="$, $$, or $$$")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Rating out of 5")
-    opening_hours: Optional[str] = Field(None, description="Human-readable hours")
-    lat: Optional[float] = Field(None, description="Latitude")
-    lng: Optional[float] = Field(None, description="Longitude")
-    url: Optional[str] = Field(None, description="Link to details page")
-    location_name: str = Field(..., description="Which itinerary location this is near")
-    vibe_match_score: Optional[float] = Field(None, ge=0, le=1, description="LLM vibe relevance score")
-    photo_urls: Optional[List[str]] = Field(
-        None,
-        description="Photo/image URLs from MCP servers (Google Places, Yelp, etc.)"
-    )
-
-
-class SelectionCardResponse(BaseModel):
-    """
-    A single HITL Selection Card rendered on the React Native app.
-
-    Maps 1-to-1 with a SearchCandidate but adds UI-ready formatting:
-    title, subtitle, badge, price_label, image_url, etc.
-    """
-    candidate_id: str = Field(..., description="Links back to SearchCandidate.id")
-    title: str = Field(..., description="Display name")
-    subtitle: Optional[str] = Field(None, description="e.g. 'Sri Lankan Cuisine · $$$'")
-    badge: Optional[str] = Field(None, description="e.g. '★ 4.5' or 'Top Pick'")
-    price_label: Optional[str] = Field(None, description="$, $$, $$$")
-    image_url: Optional[str] = Field(None, description="Thumbnail URL (if available)")
-    photo_urls: Optional[List[str]] = Field(
-        None,
-        description="All photo URLs for the candidate (carousel on mobile)"
-    )
-    description: str = Field("", description="Short blurb for the card body")
-    vibe_match_score: Optional[float] = Field(None, ge=0, le=1)
-    coordinates: Optional[Dict[str, float]] = Field(None, description='{"lat": ..., "lng": ...}')
-    opening_hours: Optional[str] = None
-
-
-class MapReadyItineraryResponse(BaseModel):
-    """
-    Final map-ready itinerary JSON produced after HITL re-optimisation.
-
-    Contains everything the React Native app needs to render the itinerary
-    on Mapbox/Google Maps with route polylines, markers, and dynamic warnings.
-    """
-    stops: List[Dict[str, Any]] = Field(default_factory=list)
-    route_polyline: List[Dict[str, Any]] = Field(default_factory=list)
-    itinerary_sequence: List[Dict[str, Any]] = Field(default_factory=list)
-    contextual_notes: List[Any] = Field(default_factory=list)
-    total_distance_km: float = 0.0
-    total_days: int = 1
-    summary: str = ""
-    warnings: List[str] = Field(default_factory=list)
-    tips: List[str] = Field(default_factory=list)
-    dynamic_warnings: List[str] = Field(default_factory=list)
-    golden_hour: Optional[Dict[str, Any]] = None
-    selected_venue: Optional[Dict[str, Any]] = None
-    route_geometry: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="GeoJSON FeatureCollection for Mapbox/Google Maps route rendering"
-    )
-
-
-class WeatherInterruptResponse(BaseModel):
-    """
-    Response model returned when the Shadow Monitor detects severe weather
-    (rain_probability > 80% or wind_speed > 60 km/h).
-
-    The mobile app should display a prompt with the message and options,
-    then call the ``/resume-weather`` endpoint with the user's choice.
-    """
-    interrupt_reason: str = Field(
-        "USER_PROMPT_REQUIRED",
-        description="Always 'USER_PROMPT_REQUIRED' for weather interrupts"
-    )
-    weather_prompt_message: str = Field(
-        ...,
-        description="Friendly weather warning (e.g. 'Heavy rain forecast…')"
-    )
-    weather_prompt_options: List[Dict[str, str]] = Field(
-        ...,
-        description="List of {id, label, description} options for the user"
-    )
-    thread_id: str = Field(
-        ...,
-        description="Thread ID to pass back when resuming the graph"
-    )
-
-
-class ItineraryStopVisualResponse(BaseModel):
-    """
-    Visual-optimisation fields added to each itinerary stop for the
-    React Native rendering layer.
-    """
-    visual_hierarchy: Optional[int] = Field(
-        None,
-        description="1=must-see (prominent card), 2=recommended, 3=optional (compact)"
-    )
-    best_for_photos: Optional[bool] = Field(
-        None,
-        description="True when Golden Hour engine identifies premium photo conditions"
-    )
-    photo_urls: Optional[List[str]] = Field(
-        None,
-        description="Photo URLs for the stop's image carousel"
-    )
-
-
-class AdvancedSearchResponse(BaseModel):
-    """
-    Response model for the Advanced Multi-Step Search endpoint.
-
-    Contains grounded candidates ready for user selection (HITL interrupt).
-    The `pending_user_selection` flag signals the mobile app to display
-    a selection UI.  `selection_cards` provides pre-formatted UI cards.
-    """
-    success: bool = True
-    query: str
-    search_type: str = Field(..., description="hotel, restaurant, bar, or event")
-    location: str
-    vibe: str = Field("", description="Detected user vibe/preference")
-    candidates: List[SearchCandidateResponse] = Field(default_factory=list)
-    total_candidates: int = 0
-    pending_user_selection: bool = Field(
-        False,
-        description="True when graph is paused waiting for user to select a candidate"
-    )
-    selection_cards: Optional[List[SelectionCardResponse]] = Field(
-        None,
-        description="Pre-formatted HITL selection cards for the React Native app"
-    )
-    mcp_search_metadata: Optional[Dict[str, Any]] = Field(
-        None,
-        description="MCP pipeline metadata (servers queried, cache hits, timings)"
-    )
-    map_ready_itinerary: Optional[MapReadyItineraryResponse] = Field(
-        None,
-        description="Post-selection map-ready itinerary (populated after HITL resume)"
-    )
-    step_results: Optional[List[StepResultResponse]] = None
 
 
 class TourPlanResponse(BaseModel):
@@ -390,9 +156,6 @@ class TourPlanResponse(BaseModel):
         reasoning_logs: Shadow monitor audit trail
         warnings: List of warnings for the plan
         tips: Helpful tips for the trip
-        step_results: Agentic pipeline step results
-        clarification_question: Structured question when input is ambiguous
-        cultural_tips: Sri Lanka-specific cultural tips
     """
     success: bool = True
     thread_id: str
@@ -403,63 +166,6 @@ class TourPlanResponse(BaseModel):
     reasoning_logs: Optional[List[ShadowMonitorLogResponse]] = None
     warnings: Optional[List[str]] = None
     tips: Optional[List[str]] = None
-    step_results: Optional[List[StepResultResponse]] = None
-    clarification_question: Optional[ClarificationQuestionResponse] = None
-    cultural_tips: Optional[List[CulturalTipResponse]] = None
-    events: Optional[List[EventInfoResponse]] = None
-    final_itinerary: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Visual-ready structured itinerary with sequence_ids, coordinates, route_polyline, and contextual_notes for map rendering"
-    )
-    weather_data: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Weather forecast data for each location"
-    )
-    interrupt_reason: Optional[str] = Field(
-        None,
-        description="Reason for human-in-the-loop interrupt (e.g., constraint_interrupt, weather)"
-    )
-    restaurant_recommendations: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Top 3 restaurant options per meal slot. User can select or skip. Grouped by day and meal_slot."
-    )
-    accommodation_recommendations: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Top 3 accommodation options per overnight stay. Only for 2+ day trips. User can select or skip."
-    )
-    search_candidates: Optional[List[SearchCandidateResponse]] = Field(
-        None,
-        description="Grounded search candidates from Advanced Multi-Step Search (hotels/restaurants/events). "
-                    "Present when NEED_USER_SELECTION state is active."
-    )
-    pending_user_selection: bool = Field(
-        False,
-        description="True when the graph is paused waiting for user to select from search_candidates"
-    )
-    weather_interrupt: Optional[bool] = Field(
-        None,
-        description="True when the graph is paused due to severe weather (rain>80%% or wind>60km/h)"
-    )
-    weather_prompt_message: Optional[str] = Field(
-        None,
-        description="Human-readable weather warning message shown to the user"
-    )
-    weather_prompt_options: Optional[List[Dict[str, str]]] = Field(
-        None,
-        description="Options for the user to choose from when weather_interrupt is True"
-    )
-    selection_cards: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Pre-formatted UI cards for the mobile selection UI (photo_urls, badge, vibe_match_score)"
-    )
-    prompt_text: Optional[str] = Field(
-        None,
-        description="Short header text for the mobile selection prompt (e.g. 'Pick a restaurant')"
-    )
-    mcp_search_metadata: Optional[Dict[str, Any]] = Field(
-        None,
-        description="MCP search metadata (servers_queried, total_raw, dedup_count, search_depth)"
-    )
 
     class Config:
         json_schema_extra = {
@@ -509,55 +215,6 @@ class TourPlanResponse(BaseModel):
                 "tips": ["Start early to avoid crowds", "Bring water bottles"]
             }
         }
-
-
-class RestaurantRecommendationResponse(BaseModel):
-    """A restaurant recommendation for a meal slot in the itinerary."""
-    id: str = Field(..., description="Unique selection ID (e.g., rest_d1_lunch_1)")
-    name: str = Field(..., description="Restaurant name")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Rating out of 5")
-    cuisine_type: Optional[str] = Field(None, description="Cuisine type (e.g., Sri Lankan, International)")
-    price_range: Optional[str] = Field(None, description="Price indicator ($, $$, $$$)")
-    url: Optional[str] = Field(None, description="Link to reviews/details")
-    description: str = Field(..., description="Short description")
-    near_location: str = Field(..., description="Which itinerary location this is near")
-    meal_slot: str = Field(..., description="breakfast, lunch, or dinner")
-    day: int = Field(..., ge=1, description="Day number of the trip")
-
-
-class AccommodationRecommendationResponse(BaseModel):
-    """An accommodation recommendation for overnight stays."""
-    id: str = Field(..., description="Unique selection ID (e.g., hotel_d1_1)")
-    name: str = Field(..., description="Hotel/resort name")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Rating out of 5")
-    price_range: Optional[str] = Field(None, description="Price indicator ($, $$, $$$)")
-    url: Optional[str] = Field(None, description="Link to booking/details")
-    description: str = Field(..., description="Short description")
-    near_location: str = Field(..., description="Near which itinerary location")
-    check_in_day: int = Field(..., ge=1, description="Day number for check-in")
-    type: str = Field(..., description="hotel, resort, or guesthouse")
-
-
-class HotelSearchResultResponse(BaseModel):
-    """A single hotel/restaurant search result."""
-    name: str = Field(..., description="Establishment name")
-    type: str = Field(..., description="Type: hotel, restaurant, bar")
-    price_range: Optional[str] = Field(None, description="Price indicator ($, $$, $$$)")
-    rating: Optional[float] = Field(None, description="Rating out of 5")
-    url: Optional[str] = Field(None, description="Link to booking/details")
-    description: str = Field(..., description="Short description")
-    distance_from_location: Optional[str] = Field(None, description="Distance from queried location")
-    location_name: str = Field(..., description="Which itinerary location this is near")
-
-
-class HotelSearchResponse(BaseModel):
-    """Response model for hotel/restaurant search endpoint."""
-    success: bool = True
-    query: str
-    search_type: str = Field(..., description="hotel, restaurant, or bar")
-    location: str
-    results: List[HotelSearchResultResponse] = Field(default_factory=list)
-    total_results: int = 0
 
 
 class CrowdPredictionResponse(BaseModel):

@@ -17,20 +17,8 @@ Use Cases:
 """
 
 import logging
-import time as _time_mod
 from datetime import datetime
 from typing import Dict, Optional
-
-# Tracing
-try:
-    from ...utils.tracing import trace_node
-    TRACING_AVAILABLE = True
-except ImportError:
-    TRACING_AVAILABLE = False
-    def trace_node(*args, **kwargs):
-        def decorator(func):
-            return func
-        return decorator
 
 from ..state import GraphState, ShadowMonitorLog
 from ...tools.web_search import get_web_search_tool
@@ -39,7 +27,6 @@ from ...config import settings
 logger = logging.getLogger(__name__)
 
 
-@trace_node("web_search", run_type="tool")
 async def web_search_node(state: GraphState) -> GraphState:
     """
     Web Search Node: Fetch real-time information from the web.
@@ -60,7 +47,6 @@ async def web_search_node(state: GraphState) -> GraphState:
     query = state["user_query"]
     target_location = state.get("target_location")
 
-    _start = _time_mod.time()
     logger.info(f"Web Search triggered for: {query[:50]}...")
 
     # Get web search tool
@@ -99,15 +85,8 @@ async def web_search_node(state: GraphState) -> GraphState:
                 "source": "web"
             })
 
-    _duration_ms = (_time_mod.time() - _start) * 1000
     return {
         **state,
         "web_search_results": web_context,
-        "step_results": [{
-            "node": "web_search",
-            "status": "success" if web_context else "warning",
-            "summary": f"Found {len(web_context)} web results | Query: {search_query[:60]} | Source: Tavily",
-            "duration_ms": round(_duration_ms, 2),
-        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry]
     }

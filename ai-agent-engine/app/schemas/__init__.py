@@ -16,11 +16,6 @@ from .requests import (
     GoldenHourRequest,
     EventImpactRequest,
     PhysicsGoldenHourRequest,
-    ClearChatHistoryRequest,
-    # Advanced Search selection (HITL)
-    SelectionRequest,
-    # Weather Interrupt resume (HITL)
-    WeatherResumeRequest,
     # Simple API requests
     SimpleCrowdPredictionRequest,
     SimpleGoldenHourRequest,
@@ -35,11 +30,6 @@ from .responses import (
     ShadowMonitorLogResponse,
     TourPlanResponse,
     TourPlanMetadataResponse,
-    StepResultResponse,
-    ClarificationQuestionResponse,
-    ClarificationOptionResponse,
-    CulturalTipResponse,
-    EventInfoResponse,
     CrowdPredictionResponse,
     EventCheckResponse,
     GoldenHourResponse,
@@ -57,16 +47,6 @@ from .responses import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
-    # Hotel/Restaurant search
-    HotelSearchResultResponse,
-    HotelSearchResponse,
-    # Advanced Multi-Step Search
-    VisualAssetResponse,
-    SearchCandidateResponse,
-    AdvancedSearchResponse,
-    # Restaurant/Accommodation recommendations
-    RestaurantRecommendationResponse,
-    AccommodationRecommendationResponse,
     # Simple API responses
     SimpleCrowdPredictionResponse,
     SimpleGoldenHourResponse,
@@ -88,9 +68,6 @@ __all__ = [
     "GoldenHourRequest",
     "EventImpactRequest",
     "PhysicsGoldenHourRequest",
-    "ClearChatHistoryRequest",
-    "SelectionRequest",
-    "WeatherResumeRequest",
     # Simple API requests
     "SimpleCrowdPredictionRequest",
     "SimpleGoldenHourRequest",
@@ -104,11 +81,6 @@ __all__ = [
     "ShadowMonitorLogResponse",
     "TourPlanResponse",
     "TourPlanMetadataResponse",
-    "StepResultResponse",
-    "ClarificationQuestionResponse",
-    "ClarificationOptionResponse",
-    "CulturalTipResponse",
-    "EventInfoResponse",
     "CrowdPredictionResponse",
     "EventCheckResponse",
     "GoldenHourResponse",
@@ -126,16 +98,6 @@ __all__ = [
     "CalculationMetadata",
     "SolarPositionResponse",
     "PhysicsGoldenHourResponse",
-    # Hotel/Restaurant search
-    "HotelSearchResultResponse",
-    "HotelSearchResponse",
-    # Advanced Multi-Step Search
-    "VisualAssetResponse",
-    "SearchCandidateResponse",
-    "AdvancedSearchResponse",
-    # Restaurant/Accommodation recommendations
-    "RestaurantRecommendationResponse",
-    "AccommodationRecommendationResponse",
     # Simple API responses
     "SimpleCrowdPredictionResponse",
     "SimpleGoldenHourResponse",

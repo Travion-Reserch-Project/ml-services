@@ -240,7 +240,6 @@ def get_vectordb_service(
     return _vectordb_service
 
 
-@trace_node("retrieval", run_type="retriever")
 async def retrieval_node(
     state: GraphState,
     vectordb: Optional[VectorDBService] = None
@@ -263,8 +262,6 @@ async def retrieval_node(
         The retrieval implements a "Retrieve-then-Rerank" pattern where
         we over-fetch candidates and let the Grader node filter them.
     """
-    import time as _time
-    _start = _time.time()
     query = state["user_query"]
     target_location = state.get("target_location")
 
@@ -295,18 +292,9 @@ async def retrieval_node(
                     f"({doc['relevance_score']:.3f})")
 
     # Update state
-    _duration_ms = (_time.time() - _start) * 1000
-    doc_sources = set(d.get("metadata", {}).get("location", "unknown") for d in documents[:3])
-    avg_score = sum(d["relevance_score"] for d in documents) / len(documents) if documents else 0.0
     return {
         **state,
         "retrieved_documents": documents,
-        "step_results": [{
-            "node": "retrieval",
-            "status": "success" if documents else "warning",
-            "summary": f"Retrieved {len(documents)} docs | Location filter: {location_filter or 'none'} | Avg relevance: {avg_score:.3f} | Sources: {', '.join(doc_sources)}",
-            "duration_ms": round(_duration_ms, 2),
-        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),
             "check_type": "retrieval",

@@ -63,67 +63,65 @@ Response Rules (CRITICAL):
 - End with a quick helpful tip or friendly note when appropriate
 
 Formatting:
-- Use markdown: **bold** for key info, bullet lists (- item) for multiple points
+- Plain text only, NO markdown (no **, ##, -, *)
 - Use emojis to visually separate key points
 - Short paragraphs (2-3 lines max)
 
 Current context will be provided. Give brief, accurate answers.""",
 
-    "tourism_guide_location": """You are Travion, a knowledgeable and friendly AI tour guide for {location_name}.
+    "tourism_guide_location": """You are Travion, a friendly AI tour guide helping the user explore {location_name}.
 
-Your goal is to give responses that feel like advice from a well-travelled local friend — conversational, practical, and engaging.
+Response Rules (CRITICAL):
+- Keep responses SHORT (3-5 sentences for simple questions, max 6-8 for detailed ones)
+- This is a MOBILE APP - users read on small screens
+- ALL answers are about {location_name} - no need to repeat the name excessively
+- Use relevant emojis naturally:
+  🏛️ temples/ruins, 🌅 sunrise/sunset, ⏰ timing, 💡 tips
+  ⚠️ warnings, 🎫 tickets/entry, 👕 dress code, 🚶 walking
+  📸 photo spots, 🌧️ weather, 👥 crowds, 💰 costs
+- Lead with the MOST important info
+- Be conversational like a friendly local guide
+- Skip obvious or generic details
 
-## Response Style Rules (CRITICAL for mobile readability):
-- Lead with a warm 1-sentence opener that directly addresses the question
-- Use **bold** to highlight the single most important fact
-- Use bullet points (- item) for lists of 3+ items
-- Use relevant emojis to make content visually scannable:
-  🏛️ heritage/history | 🌿 nature/wildlife | 🌅 sunrise/sunset | ⏰ timing
-  💡 pro tips | ⚠️ important warnings | 🎫 tickets/entry | 👕 dress code
-  📸 photography | 🌧️ weather | 👥 crowds | 💰 cost | 🍜 food | 🚶 walking
-- End with one friendly tip or fun fact when appropriate
-- Keep total response concise — no walls of text
+Formatting:
+- Plain text only, NO markdown (no **, ##, -, *)
+- Use emojis to highlight key points visually
+- Keep paragraphs short (2-3 lines)
+- End with a quick tip or friendly note when helpful
 
-## Formatting (use markdown, the app renders it):
-- **bold** for key names, times, prices
-- `- bullet` for 3+ items
-- Use section headers like **⏰ Best Time** only when the response has 3+ distinct sections
-- Blockquotes (`> text`) for important warnings or must-know tips
+Remember previous messages in our conversation.""",
 
-## Sources (always include when info comes from knowledge base or web):
-- If using knowledge base: add `> 📚 *From knowledge base*` at the bottom
-- If web search was used: add `> 🌐 *Live web search included*` at the bottom
-- If both: show both source lines
+    "trip_planner": """You are Travion, a friendly travel planner for Sri Lanka.
 
-Remember all previous messages in our conversation for context.""",
+Itinerary Rules:
+- Keep it CONCISE - mobile users need quick info
+- Use emojis for each stop: 🌅 morning, ☀️ midday, 🌆 evening
+- Include times and key tips only
+- Use ⚠️ for warnings (Poya days, crowds)
+- Use 💡 for pro tips
+- Format: "⏰ 6:30 AM - 🏛️ Temple Name - quick tip"
 
-    "trip_planner": """You are Travion, a friendly travel planner for Sri Lanka 🇱🇰
+Formatting:
+- Plain text only, NO markdown
+- Number each stop simply: 1. 2. 3.
+- One line per activity when possible
+- Add a brief summary at the end
 
-## Itinerary Format:
-Use this structure for each day/stop:
-
-**⏰ [Time] — [Location Name]**
-- 💡 Key tip or what to do
-- ⚠️ Warning (if any)
-
-Rules:
-- Include realistic timings
-- Use 🌅 morning, ☀️ midday, 🌆 evening emoji markers
-- Use ⚠️ for Poya days, crowds, or closures
-- Use 💡 for insider tips
-- End with a **💰 Budget Estimate** or **📝 Quick Summary**
-
-Keep it concise — mobile users need quick, scannable info.""",
+Focus on practical, actionable plans.""",
 
     "greeting": """You are Travion, a friendly AI tour guide for Sri Lanka 🇱🇰
 
-Respond warmly in 1-2 sentences. Use 👋 or 🙏 and offer to help.
-Use light markdown if needed, keep it brief.""",
+Respond warmly but briefly (1-2 sentences max).
+Use a welcoming emoji like 👋 or 🙏
+Offer to help with their Sri Lanka trip.
+Plain text only, no markdown.""",
 
     "off_topic": """You are Travion, an AI tour guide for Sri Lanka 🇱🇰
 
-In 1-2 sentences, politely redirect to Sri Lanka travel topics. Use 😊.
-Light markdown is fine."""
+Keep it brief (1-2 sentences).
+Politely redirect to Sri Lanka travel topics.
+Use a friendly emoji like 😊
+Plain text only, no markdown."""
 }
 
 
@@ -160,7 +158,7 @@ def build_context_string(state: GraphState) -> str:
 
     # Add constraint information
     constraints = state.get("_constraint_results")
-    if constraints and isinstance(constraints, dict):
+    if constraints:
         parts.append("=== CONSTRAINT ANALYSIS ===")
         parts.append(constraints.get("recommendation", ""))
         parts.append("")
@@ -182,9 +180,6 @@ def build_context_string(state: GraphState) -> str:
 def get_system_prompt(intent: Optional[IntentType], target_location: Optional[str] = None) -> str:
     """Get appropriate system prompt based on intent and location context."""
     if intent == IntentType.GREETING:
-        # When inside a location chat, greet with location context instead of generic welcome
-        if target_location:
-            return SYSTEM_PROMPTS["tourism_guide_location"].format(location_name=target_location)
         return SYSTEM_PROMPTS["greeting"]
     elif intent == IntentType.OFF_TOPIC:
         return SYSTEM_PROMPTS["off_topic"]
@@ -197,7 +192,6 @@ def get_system_prompt(intent: Optional[IntentType], target_location: Optional[st
         return SYSTEM_PROMPTS["tourism_guide"]
 
 
-@trace_node("generator", run_type="llm")
 async def generator_node(state: GraphState, llm=None) -> GraphState:
     """
     Generator Node: Produce final response using LLM.
@@ -218,8 +212,6 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
         provided context to reduce hallucination risk while maintaining
         natural, helpful responses.
     """
-    import time as _time
-    _start = _time.time()
     query = state["user_query"]
     intent = state.get("intent", IntentType.TOURISM_QUERY)
     target_location = state.get("target_location")
@@ -235,47 +227,21 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
     # Get appropriate system prompt (with location context if available)
     system_prompt = get_system_prompt(intent, target_location)
 
-    # Determine source flags for response footer
-    has_rag_docs = bool(state.get("retrieved_documents"))
-    has_web_search = bool(state.get("web_search_results"))
-
-    # For location-specific greetings, treat as a tourism query so location context is used
-    is_location_greeting = (intent == IntentType.GREETING and bool(target_location))
-
     # Build user message with context
-    if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC] or is_location_greeting:
+    if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC]:
         # If we have a target location, explicitly mention it in the context
         location_context = f"\nYou are answering questions about: {target_location}\n" if target_location else ""
-
+        
         # Include correction instructions if this is a regeneration
         correction_context = ""
         if correction_instructions:
             correction_context = f"\n\n=== IMPORTANT CORRECTIONS NEEDED ===\n{correction_instructions}\n"
-
-        # Source attribution instruction for location chat
-        source_instruction = ""
-        if target_location:
-            source_lines = []
-            if has_rag_docs:
-                source_lines.append("> 📚 *From knowledge base*")
-            if has_web_search:
-                source_lines.append("> 🌐 *Live web search included*")
-            if source_lines:
-                source_instruction = f"\n\nIMPORTANT: End your response with these exact source lines (on separate lines):\n" + "\n".join(source_lines)
-
-        # For location greetings, override the user question with a welcome prompt
-        effective_query = (
-            f"The user just said \"{query}\". Give them a warm, exciting welcome to {target_location}. "
-            f"Briefly mention 2-3 highlights they can ask about (history, best time, photography, food, etc.). "
-            f"Keep it short and inviting — like a friendly guide greeting a visitor."
-            if is_location_greeting else query
-        )
-
+        
         user_message = f"""Context Information:
 {location_context}{context}{correction_context}
-User Question: {effective_query}
+User Question: {query}
 
-Please provide a helpful response based on the context above.{' Address the correction issues mentioned.' if correction_instructions else ''}{source_instruction}"""
+Please provide a helpful response based on the context above.{' Address the correction issues mentioned.' if correction_instructions else ''}"""
     else:
         user_message = query
 
@@ -342,18 +308,10 @@ Please provide a helpful response based on the context above.{' Address the corr
     # This enables the conversation memory to persist across messages
     assistant_message = {"role": "assistant", "content": generated_text}
 
-    _duration_ms = (_time.time() - _start) * 1000
-    is_correction = bool(correction_instructions)
     return {
         **state,
         "generated_response": generated_text,
         "messages": [assistant_message],  # Will be appended via operator.add
-        "step_results": [{
-            "node": "generator",
-            "status": "success",
-            "summary": f"Generated {len(generated_text)} chars | Intent: {intent.value} | Location: {target_location or 'general'} | Context: {len(context)} chars | Correction: {is_correction}",
-            "duration_ms": round(_duration_ms, 2),
-        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry]
     }
 
@@ -372,13 +330,6 @@ def generate_fallback_response(state: GraphState) -> str:
     target_location = state.get("target_location")
 
     if intent == IntentType.GREETING:
-        if target_location:
-            return (
-                f"👋 Ayubowan! Welcome to **{target_location}** — I'm your AI guide here.\n\n"
-                f"I can tell you about the history, best times to visit, photography tips, "
-                f"hidden gems, local food, and much more.\n\n"
-                f"💡 *What would you like to know about {target_location}?*"
-            )
         return ("Ayubowan! Welcome to Travion, your AI guide to Sri Lanka. "
                 "I can help you plan trips, find destinations, and learn about "
                 "Sri Lankan culture. What would you like to explore today?")

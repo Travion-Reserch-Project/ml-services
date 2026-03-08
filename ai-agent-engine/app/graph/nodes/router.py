@@ -216,7 +216,6 @@ def classify_intent_heuristic(query: str) -> IntentType:
     return IntentType.TOURISM_QUERY
 
 
-@trace_node("router")
 async def router_node(state: GraphState, llm=None) -> GraphState:
     """
     Router Node: Classify intent and extract entities from user query.
@@ -237,8 +236,6 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
         The router uses heuristic classification for speed (instant vs 5+ min LLM).
         Heuristics are sufficient for intent routing - LLM is saved for generation.
     """
-    import time
-    _start = time.time()
     query = state["user_query"]
     logger.info(f"Router processing: {query[:50]}...")
 
@@ -261,18 +258,11 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
         logger.info(f"Extracted target_location from query: {new_target_location}")
 
     # Update state
-    _duration_ms = (time.time() - _start) * 1000
     return {
         **state,
         "intent": intent,
         "target_location": new_target_location,
         "target_date": entities["date_reference"],
-        "step_results": [{
-            "node": "router",
-            "status": "success",
-            "summary": f"Intent: {intent.value} | Location: {new_target_location or 'none'} | Date: {entities['date_reference'] or 'none'} | Activities: {', '.join(entities['activities']) or 'none'}",
-            "duration_ms": round(_duration_ms, 2),
-        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),
             "check_type": "router",
@@ -297,12 +287,8 @@ def route_by_intent(state: GraphState) -> Literal["generate", "retrieve", "web_s
         Next node name as string literal
     """
     intent = state.get("intent")
-    target_location = state.get("target_location")
 
     if intent == IntentType.GREETING:
-        # Location-specific greetings: retrieve so we can give a rich welcome
-        if target_location:
-            return "retrieve"
         return "generate"
     elif intent == IntentType.OFF_TOPIC:
         return "generate"
