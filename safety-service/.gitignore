@@ -33,12 +33,6 @@ ENV/
 env.bak/
 venv.bak/
 
-# Model artifacts (don't commit trained models)
-model/*.pkl
-model/*.pth
-model/*.h5
-model/*.onnx
-model/*.json
 !model/.gitkeep
 
 # Data files
@@ -46,10 +40,6 @@ data/*.csv
 data/*.json
 data/*.parquet
 !data/.gitkeep
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
 
 # IDEs
 .vscode/
