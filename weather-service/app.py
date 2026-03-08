@@ -191,7 +191,13 @@ def predict_weather_risk(request: PredictRequest):
         raise HTTPException(status_code=503, detail="Weather risk model not loaded")
 
     try:
-        result = weather_service.predict_one(request.features.dict())
+        service = get_weather_service()
+
+        if service is None:
+            return {"success": False, "error": "Weather service unavailable"}
+
+        result = service.predict_one(request.features.model_dump())
+
         return {
             "success": True,
             "prediction": result,
