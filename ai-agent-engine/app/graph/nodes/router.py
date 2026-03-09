@@ -201,15 +201,40 @@ def classify_intent_heuristic(query: str) -> IntentType:
         if re.search(pattern, query_lower):
             return IntentType.REAL_TIME_INFO
 
-    # Off-topic patterns (non-Sri Lanka)
+    # Off-topic patterns (non-Sri Lanka / non-travel topics)
     offtopic_patterns = [
-        r"(france|paris|london|new york|tokyo|india|thailand)",
-        r"(code|programming|python|javascript)",
-        r"(recipe|cooking|food) (?!sri lanka)",
-        r"(stock|crypto|bitcoin|investment)",
+        # Other countries / cities
+        r"\b(france|paris|french|london|england|uk|britain|new york|usa|america|tokyo|japan|"
+        r"india|delhi|mumbai|thailand|bangkok|bali|indonesia|malaysia|singapore|australia|"
+        r"canada|germany|italy|rome|spain|dubai|uae|china|beijing|korea|vietnam|"
+        r"maldives|nepal|pakistan|bangladesh)\b",
+        # Tech / programming
+        r"\b(code|coding|programming|python|javascript|typescript|java|react|angular|"
+        r"sql|database|api|machine learning|ai model|chatgpt|openai|llm|neural network|"
+        r"html|css|git|github|docker|kubernetes|aws|cloud|server|linux)\b",
+        # Finance / crypto
+        r"\b(stock|crypto|bitcoin|ethereum|nft|investment|forex|trading|shares|dividend|"
+        r"portfolio|hedge fund|bank account|loan|mortgage)\b",
+        # Health / medical
+        r"\b(diagnose|diagnosis|symptoms|medicine|prescription|doctor|hospital|surgery|"
+        r"disease|cancer|diabetes|covid vaccine)\b",
+        # Non-Sri-Lankan food (only block if not combined with Sri Lanka)
+        r"\b(pizza|burger|sushi|tacos|pasta|french cuisine|italian food|mexican food)\b",
+        # General off-topic
+        r"\b(homework|essay|write my|politics|election|war|military|religion debate|"
+        r"legal advice|lawyer|lawsuit)\b",
     ]
     for pattern in offtopic_patterns:
         if re.search(pattern, query_lower):
+            # Double-check: if query also strongly mentions Sri Lanka, keep it as tourism
+            sri_lanka_signals = [
+                "sri lanka", "ceylon", "colombo", "kandy", "sigiriya", "galle",
+                "ella", "mirissa", "negombo", "trincomalee", "jaffna", "nuwara",
+                "dambulla", "anuradhapura", "polonnaruwa", "arugam", "yala", "horton",
+                "pinnawala", "bentota", "hikkaduwa", "unawatuna", "weligama",
+            ]
+            if any(signal in query_lower for signal in sri_lanka_signals):
+                continue  # Let it through as a tourism query
             return IntentType.OFF_TOPIC
 
     # Default to tourism query
