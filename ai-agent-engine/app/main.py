@@ -362,6 +362,36 @@ def _build_user_thread_id(user_id: Optional[str], thread_id: Optional[str]) -> O
 
 
 # =============================================================================
+# SOURCE EXTRACTION HELPER
+# =============================================================================
+
+def _extract_sources(result: dict) -> dict:
+    """
+    Extract source attribution data from the graph result state.
+
+    Returns a dict with:
+      - source_urls: list of {title, url} from web/MCP search results
+      - kb_sources: list of location names from the knowledge base docs used
+    """
+    # Web / MCP search source links
+    source_urls = []
+    for r in (result.get("web_search_results") or []):
+        title = r.get("title", "Source")
+        url = r.get("url", "")
+        if url:
+            source_urls.append({"title": title, "url": url})
+
+    # Knowledge base document locations
+    kb_sources = []
+    for doc in (result.get("retrieved_documents") or []):
+        loc = (doc.get("metadata") or {}).get("location", "")
+        if loc and loc not in kb_sources:
+            kb_sources.append(loc)
+
+    return {"source_urls": source_urls, "kb_sources": kb_sources}
+
+
+# =============================================================================
 # MAIN CHAT ENDPOINT
 # =============================================================================
 
@@ -435,7 +465,8 @@ async def chat(request: ChatRequest):
             metadata={
                 "reasoning_loops": result.get("reasoning_loops", 0),
                 "documents_retrieved": result.get("documents_retrieved", 0),
-                "web_search_used": result.get("web_search_used", False)
+                "web_search_used": result.get("web_search_used", False),
+                **_extract_sources(result),
             }
         )
 
@@ -552,7 +583,8 @@ async def location_chat(request: LocationChatRequest):
                 "reasoning_loops": result.get("reasoning_loops", 0),
                 "documents_retrieved": result.get("documents_retrieved", 0),
                 "web_search_used": result.get("web_search_used", False),
-                "target_location": request.location_name
+                "target_location": request.location_name,
+                **_extract_sources(result),
             }
         )
 
@@ -2682,7 +2714,19 @@ async def simple_crowd_prediction(request: SimpleCrowdPredictionRequest):
     """Simple crowd prediction - pass location name only."""
     try:
         now = datetime.now()
-        today = now.date()
+        
+        # Use provided date or default to today
+        if request.date:
+            try:
+                target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+                # Create a datetime at current time but on the target date
+                target_dt = datetime.combine(target_date, now.time())
+            except ValueError:
+                target_date = now.date()
+                target_dt = now
+        else:
+            target_date = now.date()
+            target_dt = now
         
         recommender = get_recommender()
         location = recommender.get_location_info(request.location_name)
@@ -2699,27 +2743,27 @@ async def simple_crowd_prediction(request: SimpleCrowdPredictionRequest):
         location_type = get_location_type_from_scores(location.preference_scores)
         
         event_sentinel = get_event_sentinel()
-        event_info = event_sentinel.get_event_info(now)
+        event_info = event_sentinel.get_event_info(target_dt)
         is_poya = event_info.get("is_poya", False)
         is_school_holiday = event_info.get("is_school_holiday", False)
         
         crowdcast = get_crowdcast()
         prediction = crowdcast.predict(
             location_type=location_type,
-            target_datetime=now,
+            target_datetime=target_dt,
             is_poya=is_poya,
             is_school_holiday=is_school_holiday
         )
         
         optimal_times = crowdcast.find_optimal_time(
-            location_type, now, is_poya=is_poya,
+            location_type, target_dt, is_poya=is_poya,
             is_school_holiday=is_school_holiday, preference="low_crowd"
         )
         
         return SimpleCrowdPredictionResponse(
             location_name=location.name,
             location_type=location_type,
-            date=today.isoformat(),
+            date=target_date.isoformat(),
             current_time=now.strftime("%H:%M"),
             crowd_level=prediction["crowd_level"],
             crowd_percentage=prediction["crowd_percentage"],
@@ -2757,7 +2801,15 @@ async def simple_golden_hour(request: SimpleGoldenHourRequest):
     """Simple golden hour - pass location name only."""
     try:
         now = datetime.now()
-        today = now.date()
+        
+        # Use provided date or default to today
+        if request.date:
+            try:
+                target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+            except ValueError:
+                target_date = now.date()
+        else:
+            target_date = now.date()
         
         golden_hour = get_golden_hour_agent()
         spot = golden_hour.PHOTOGRAPHY_SPOTS.get(request.location_name)
@@ -2791,13 +2843,13 @@ async def simple_golden_hour(request: SimpleGoldenHourRequest):
         if lat is None or lng is None:
             raise HTTPException(status_code=404, detail=f"Location not found: {request.location_name}")
         
-        sun_times = golden_hour.get_sun_times(today, lat, lng, location_name)
+        sun_times = golden_hour.get_sun_times(target_date, lat, lng, location_name)
         lighting = golden_hour.get_lighting_quality(now, lat, lng)
-        photo_times = golden_hour.get_optimal_photo_times(location_name, today)
+        photo_times = golden_hour.get_optimal_photo_times(location_name, target_date)
         
         return SimpleGoldenHourResponse(
             location_name=location_name,
-            date=today.isoformat(),
+            date=target_date.isoformat(),
             coordinates={"lat": lat, "lng": lng},
             sunrise=sun_times["sunrise"],
             sunset=sun_times["sunset"],
