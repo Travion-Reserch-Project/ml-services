@@ -619,6 +619,7 @@ class SimpleCrowdPredictionRequest(BaseModel):
 
     Attributes:
         location_name: Name of the location (e.g., "Sigiriya", "Galle Fort")
+        date: Optional date string (YYYY-MM-DD) for predictions. Defaults to today.
     """
     location_name: str = Field(
         ...,
@@ -627,11 +628,17 @@ class SimpleCrowdPredictionRequest(BaseModel):
         description="Location name (supports fuzzy matching)",
         examples=["Sigiriya", "Galle Fort", "Temple of the Tooth", "Ella"]
     )
+    date: Optional[str] = Field(
+        default=None,
+        description="Date for prediction in YYYY-MM-DD format. Defaults to today.",
+        examples=["2026-03-08"]
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "location_name": "Sigiriya"
+                "location_name": "Sigiriya",
+                "date": "2026-03-08"
             }
         }
 
@@ -645,6 +652,7 @@ class SimpleGoldenHourRequest(BaseModel):
 
     Attributes:
         location_name: Name of the location (e.g., "Sigiriya", "Nine Arches Bridge")
+        date: Optional date string (YYYY-MM-DD) for predictions. Defaults to today.
     """
     location_name: str = Field(
         ...,
@@ -653,11 +661,17 @@ class SimpleGoldenHourRequest(BaseModel):
         description="Location name (supports fuzzy matching)",
         examples=["Sigiriya", "Nine Arches Bridge", "Galle Fort", "Mirissa Beach"]
     )
+    date: Optional[str] = Field(
+        default=None,
+        description="Date for golden hour in YYYY-MM-DD format. Defaults to today.",
+        examples=["2026-03-08"]
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "location_name": "Sigiriya"
+                "location_name": "Sigiriya",
+                "date": "2026-03-08"
             }
         }
 
