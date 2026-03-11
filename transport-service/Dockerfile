@@ -41,12 +41,11 @@ RUN useradd -m -u 1001 mluser
 COPY --from=builder /root/.local /home/mluser/.local
 
 # Copy application code
-COPY app.py .
-COPY routes.py .
-COPY download_model.py .
-COPY utils/ utils/
+COPY app/ app/
 COPY data/ data/
 COPY requirements.txt .
+COPY app.py .
+COPY routes.py .
 
 # Create model directory (model will be downloaded at runtime)
 RUN mkdir -p model
@@ -76,11 +75,7 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD curl -f http://localhost:8001/api/health || exit 1
 
-# Startup script to handle model downloading and app start
+# Startup script to handle app startup
 CMD ["sh", "-c", "echo 'Starting Transport Service...'; \
-  if [ ! -f model/transport_model.pkl ]; then \
-    echo 'Downloading models...'; \
-    python download_model.py || echo 'Warning: Model download failed, continuing...'; \
-  fi; \
   echo 'Starting uvicorn...'; \
-  uvicorn app:app --host 0.0.0.0 --port 8001 --workers 4"]
+  uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2"]
