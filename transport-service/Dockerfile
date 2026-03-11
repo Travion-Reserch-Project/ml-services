@@ -53,8 +53,8 @@ COPY requirements.txt .
 COPY app.py .
 COPY routes.py .
 
-# Create model directory (model will be downloaded at runtime)
-RUN mkdir -p model
+# Create model directories expected by legacy and current loaders
+RUN mkdir -p model ml-models
 
 # Change ownership to mluser
 RUN chown -R mluser:mluser /app /home/mluser/.local
@@ -79,7 +79,7 @@ USER mluser
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8001/api/health || exit 1
+  CMD curl -f http://localhost:8001/api/transport/health || exit 1
 
 # Startup script to handle app startup
 CMD ["sh", "-c", "echo 'Starting Transport Service...'; \
