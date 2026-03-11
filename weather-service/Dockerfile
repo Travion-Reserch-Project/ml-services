@@ -2,9 +2,9 @@
 
 # Dockerfile for Weather Service
 # Computer Vision-based UV risk and Fitzpatrick skin type detection
-# Python 3.10 (required for absl-py 2.4.0)
+# Python 3.11 (required for contourpy==1.3.3)
 
-FROM python:3.10-slim AS builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --user -r requirements.txt
 
 # Stage 2: Runtime image
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
