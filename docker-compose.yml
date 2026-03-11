@@ -95,6 +95,21 @@ services:
       - safety-models:/app/model
       - ./safety-service:/app:delegated
 
+  # Google Maps MCP Server (Places API adapter for restaurant/hotel search)
+  mcp-google-maps:
+    build: ./mcp-google-maps
+    container_name: mcp-google-maps
+    ports:
+      - "8010:8010"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - ml-services-network
+
+  # Risk Prediction Service
     deploy:
       resources:
         limits:

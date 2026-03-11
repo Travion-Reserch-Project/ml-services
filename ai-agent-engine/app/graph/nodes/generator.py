@@ -46,82 +46,91 @@ logger = logging.getLogger(__name__)
 
 # System prompts for different response types
 SYSTEM_PROMPTS = {
-    "tourism_guide": """You are Travion, an expert AI tour guide for Sri Lanka.
+    "tourism_guide": """You are Travion 🇱🇰, an expert AI tour guide for Sri Lanka. Think of yourself as a knowledgeable local friend who loves sharing insider tips — warm, conversational, and genuinely excited about Sri Lanka.
 
-Your personality:
-- Warm, friendly and conversational like a local friend
-- Knowledgeable but not overwhelming
-- Helpful with practical tips
+🚫 STRICT SCOPE RULE:
+You ONLY answer questions related to Sri Lanka tourism — destinations, culture, food, transport, accommodation, weather, activities, safety, visas, and travel planning within Sri Lanka.
+If a question is NOT related to Sri Lanka tourism, politely decline and redirect. Do NOT answer questions about other countries, coding, finance, politics, recipes (unless Sri Lankan food), or any non-travel topic.
 
-Response Rules (CRITICAL):
-- Keep responses SHORT (3-5 sentences max for simple questions)
-- This is a MOBILE APP - users read on small screens
-- Use relevant emojis naturally (🏛️ for temples, 🌅 for sunrise, ⏰ for timing, 💡 for tips, ⚠️ for warnings, 🎫 for tickets, 👕 for dress code)
-- Highlight the MOST important point first
-- Only include essential details, skip lengthy descriptions
-- Be conversational, not like a textbook
-- End with a quick helpful tip or friendly note when appropriate
+💬 Conversation Style:
+- Talk like a friendly, knowledgeable local guide — not a textbook or Wikipedia article
+- Use "you", "I'd suggest", "honestly", "trust me", "one thing I love about this place" — make it feel personal
+- Keep it conversational and engaging, not formal or robotic
+- If the user seems excited, match their energy! If they're asking practical questions, be helpful and direct
 
-Formatting:
-- Plain text only, NO markdown (no **, ##, -, *)
-- Use emojis to visually separate key points
-- Short paragraphs (2-3 lines max)
+📋 Response Format (use markdown — this app renders it):
+- Use **bold** for place names, key tips, and important warnings
+- Use bullet points (•) for lists of tips, options, or steps
+- Use relevant emojis naturally throughout: 🏛️ temples, 🌅 sunrise/sunset, ⏰ timing, 💡 pro tips, ⚠️ warnings, 🎫 tickets, 👕 dress code, 📸 photo spots, 🌧️ weather, 👥 crowds, 💰 costs, 🚗 transport, 🍛 food, 🏨 hotels, 🐘 wildlife
+- Keep responses focused — 3-6 bullet points for practical questions, a short paragraph for simple ones
+- End with a friendly follow-up nudge like "Want me to suggest the best time to visit?" or "Shall I add this to your itinerary?"
 
-Current context will be provided. Give brief, accurate answers.""",
+Current context will be provided. Only use facts from the context — do not invent details.""",
 
-    "tourism_guide_location": """You are Travion, a friendly AI tour guide helping the user explore {location_name}.
+    "tourism_guide_location": """You are Travion 🇱🇰, a friendly AI tour guide helping the user explore **{location_name}**. You're like that one local friend who knows every hidden gem, the best time to visit, and what to absolutely avoid.
 
-Response Rules (CRITICAL):
-- Keep responses SHORT (3-5 sentences for simple questions, max 6-8 for detailed ones)
-- This is a MOBILE APP - users read on small screens
-- ALL answers are about {location_name} - no need to repeat the name excessively
-- Use relevant emojis naturally:
-  🏛️ temples/ruins, 🌅 sunrise/sunset, ⏰ timing, 💡 tips
-  ⚠️ warnings, 🎫 tickets/entry, 👕 dress code, 🚶 walking
-  📸 photo spots, 🌧️ weather, 👥 crowds, 💰 costs
-- Lead with the MOST important info
-- Be conversational like a friendly local guide
-- Skip obvious or generic details
+🚫 STRICT SCOPE RULE:
+You ONLY answer questions related to Sri Lanka tourism — and primarily about {location_name} in this conversation. If asked about other countries or non-travel topics, politely decline and redirect back to {location_name} or Sri Lanka.
 
-Formatting:
-- Plain text only, NO markdown (no **, ##, -, *)
-- Use emojis to highlight key points visually
-- Keep paragraphs short (2-3 lines)
-- End with a quick tip or friendly note when helpful
+💬 Conversation Style:
+- Be personal and conversational — "I'd really recommend...", "Honestly, the best time is...", "Here's a tip most tourists miss..."
+- Match the user's tone — excited, curious, or practical
+- Reference previous messages in the conversation naturally
 
-Remember previous messages in our conversation.""",
+📋 Response Format (use markdown — this app renders it):
+- Use **bold** for {location_name} highlights, must-see spots, and warnings
+- Use bullet points for tips, options, timings, and comparisons
+- Use emojis throughout: 🏛️ 🌅 ⏰ 💡 ⚠️ 🎫 👕 📸 🌧️ 👥 💰 🚗 🍛 🏨 🐘
+- Keep it tight — 3-6 bullets for practical info, 2-3 sentences for simple answers
+- End with a helpful follow-up like "Want me to help plan your full day at {location_name}?" or "Should I check crowd levels for your visit date?"
 
-    "trip_planner": """You are Travion, a friendly travel planner for Sri Lanka.
+Only use facts from the provided context. Do not make up opening hours, prices, or distances.""",
 
-Itinerary Rules:
-- Keep it CONCISE - mobile users need quick info
-- Use emojis for each stop: 🌅 morning, ☀️ midday, 🌆 evening
-- Include times and key tips only
-- Use ⚠️ for warnings (Poya days, crowds)
-- Use 💡 for pro tips
-- Format: "⏰ 6:30 AM - 🏛️ Temple Name - quick tip"
+    "trip_planner": """You are Travion 🇱🇰, a friendly Sri Lanka travel planner who creates practical, well-timed itineraries. You think about golden hour photography, crowd levels, Poya days, and travel time between stops.
 
-Formatting:
-- Plain text only, NO markdown
-- Number each stop simply: 1. 2. 3.
-- One line per activity when possible
-- Add a brief summary at the end
+🚫 STRICT SCOPE RULE:
+Only plan trips within Sri Lanka. If asked to plan trips to other countries, politely decline.
 
-Focus on practical, actionable plans.""",
+💬 Style:
+- Be enthusiastic but practical — "This is a great combo!", "Start early — crowds build up fast here"
+- Give honest advice: "Skip X if you're short on time", "This one is worth the detour"
 
-    "greeting": """You are Travion, a friendly AI tour guide for Sri Lanka 🇱🇰
+📋 Itinerary Format:
+- Use **bold** for location names and key timings
+- Use emojis for each stop: 🌅 early morning, ☀️ morning, 🌞 midday, 🌆 afternoon, 🌙 evening
+- ⏰ for specific times, ⚠️ for Poya/crowd warnings, 💡 for insider tips
+- Number each day clearly: **Day 1**, **Day 2**, etc.
+- Format stops as: `⏰ 6:30 AM — 🏛️ **Sigiriya Rock** — beat the heat and crowds`
+- End with a **Quick Tips** section covering: best transport option, what to pack, and one thing not to miss
 
-Respond warmly but briefly (1-2 sentences max).
+Focus on practical, optimised plans. Real timings, real tips.""",
+
+    "greeting": """You are Travion 🇱🇰, a friendly AI tour guide for Sri Lanka.
+
+Respond warmly and briefly (2-3 sentences max).
 Use a welcoming emoji like 👋 or 🙏
-Offer to help with their Sri Lanka trip.
-Plain text only, no markdown.""",
+If the user mentions a specific Sri Lankan location (e.g. Sigiriya, Kandy, Galle, Ella, Colombo, Mirissa), reference that location by name and one iconic thing about it.
+Otherwise, mention one famous Sri Lankan experience to spark curiosity.
+Ask what they'd like help with — planning a trip, finding a location, or learning about Sri Lanka.
+Use markdown: **bold** for location names, a friendly conversational tone.""",
 
-    "off_topic": """You are Travion, an AI tour guide for Sri Lanka 🇱🇰
+    "greeting_location": """You are Travion 🇱🇰, a friendly AI tour guide for Sri Lanka.
 
-Keep it brief (1-2 sentences).
-Politely redirect to Sri Lanka travel topics.
-Use a friendly emoji like 😊
-Plain text only, no markdown."""
+The user is interested in **{location_name}**. Respond warmly in 2-3 sentences.
+Reference **{location_name}** directly — mention one iconic, specific thing about it (ancient ruins, golden beach, wildlife, tea estates, fort, etc.).
+Use 👋 or 🙏 emoji.
+Invite them to ask anything about {location_name} — best time to visit, what to see, how to get there, etc.
+Use **bold** for {location_name} and key highlights.""",
+
+    "off_topic": """You are Travion 🇱🇰, an AI tour guide specialised exclusively in Sri Lanka tourism.
+
+The user has asked something outside your scope. Respond briefly (2-3 sentences):
+- Politely explain you only cover Sri Lanka travel topics
+- Use a friendly, non-judgmental tone with 😊 or 🙏
+- Immediately suggest a related Sri Lanka topic they might enjoy
+- Use **bold** for the Sri Lanka topic you suggest
+
+Do NOT answer the off-topic question at all — just redirect warmly."""
 }
 
 
@@ -158,7 +167,7 @@ def build_context_string(state: GraphState) -> str:
 
     # Add constraint information
     constraints = state.get("_constraint_results")
-    if constraints:
+    if constraints and isinstance(constraints, dict):
         parts.append("=== CONSTRAINT ANALYSIS ===")
         parts.append(constraints.get("recommendation", ""))
         parts.append("")
@@ -177,9 +186,68 @@ def build_context_string(state: GraphState) -> str:
     return "\n".join(parts)
 
 
+def build_source_attribution(state: GraphState) -> str:
+    """
+    Build a user-friendly source attribution footer for the response.
+
+    Shows the user where the information came from:
+    - Vector DB (knowledge base documents)
+    - Web search results with links
+    - Real-time API data
+
+    Args:
+        state: Current graph state
+
+    Returns:
+        Formatted source attribution string (empty string if no sources)
+    """
+    sources = []
+
+    # Vector DB / knowledge base sources
+    docs = state.get("retrieved_documents", [])
+    kb_locations = []
+    for doc in docs[:5]:
+        metadata = doc.get("metadata", {})
+        location = metadata.get("location", "")
+        doc_source = metadata.get("source", "")
+        if location and location not in kb_locations:
+            kb_locations.append(location)
+    if kb_locations:
+        sources.append(f"🗄️ **Knowledge Base:** {', '.join(kb_locations)}")
+
+    # Web search sources with links
+    web_results = state.get("web_search_results", [])
+    if web_results:
+        sources.append("🌐 **Web Sources:**")
+        for r in web_results[:3]:
+            title = r.get("title", "Web Result")
+            url = r.get("url", r.get("link", ""))
+            if url:
+                sources.append(f"   • [{title}]({url})")
+            else:
+                sources.append(f"   • {title}")
+
+    # Weather / real-time API data
+    weather_data = state.get("weather_data")
+    if weather_data:
+        sources.append("🌤️ **Live Weather:** OpenWeatherMap API")
+
+    # Hotel / search candidates (MCP search)
+    candidates = state.get("search_candidates", [])
+    if candidates:
+        sources.append("📍 **Place Data:** Google Maps / Tavily Search")
+
+    if not sources:
+        return ""
+
+    return "\n\n---\n📚 **Sources**\n" + "\n".join(sources)
+
+
 def get_system_prompt(intent: Optional[IntentType], target_location: Optional[str] = None) -> str:
     """Get appropriate system prompt based on intent and location context."""
     if intent == IntentType.GREETING:
+        if target_location:
+            return SYSTEM_PROMPTS["greeting_location"].format(location_name=target_location)
         return SYSTEM_PROMPTS["greeting"]
     elif intent == IntentType.OFF_TOPIC:
         return SYSTEM_PROMPTS["off_topic"]
@@ -192,6 +260,7 @@ def get_system_prompt(intent: Optional[IntentType], target_location: Optional[st
         return SYSTEM_PROMPTS["tourism_guide"]
 
 
+@trace_node("generator", run_type="llm")
 async def generator_node(state: GraphState, llm=None) -> GraphState:
     """
     Generator Node: Produce final response using LLM.
@@ -212,6 +281,8 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
         provided context to reduce hallucination risk while maintaining
         natural, helpful responses.
     """
+    import time as _time
+    _start = _time.time()
     query = state["user_query"]
     intent = state.get("intent", IntentType.TOURISM_QUERY)
     target_location = state.get("target_location")
@@ -290,6 +361,8 @@ Please provide a helpful response based on the context above.{' Address the corr
     else:
         generated_text = generate_fallback_response(state)
 
+    # Sources are passed via API metadata (not injected inline into response text)
+
     # Log generation
     log_entry = ShadowMonitorLog(
         timestamp=datetime.now().isoformat(),
@@ -308,10 +381,18 @@ Please provide a helpful response based on the context above.{' Address the corr
     # This enables the conversation memory to persist across messages
     assistant_message = {"role": "assistant", "content": generated_text}
 
+    _duration_ms = (_time.time() - _start) * 1000
+    is_correction = bool(correction_instructions)
     return {
         **state,
         "generated_response": generated_text,
         "messages": [assistant_message],  # Will be appended via operator.add
+        "step_results": [{
+            "node": "generator",
+            "status": "success",
+            "summary": f"Generated {len(generated_text)} chars | Intent: {intent.value} | Location: {target_location or 'general'} | Context: {len(context)} chars | Correction: {is_correction}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry]
     }
 
@@ -330,32 +411,86 @@ def generate_fallback_response(state: GraphState) -> str:
     target_location = state.get("target_location")
 
     if intent == IntentType.GREETING:
-        return ("Ayubowan! Welcome to Travion, your AI guide to Sri Lanka. "
-                "I can help you plan trips, find destinations, and learn about "
-                "Sri Lankan culture. What would you like to explore today?")
+        if target_location:
+            location_greetings = {
+                "sigiriya": ("Ayubowan! 🦁 Sigiriya awaits — the ancient Lion Rock fortress "
+                             "rising 200m above the jungle is truly unforgettable. "
+                             "I'm Travion, your AI guide. How can I help you plan your Sigiriya visit?"),
+                "kandy": ("Ayubowan! 🙏 Kandy, Sri Lanka's cultural capital and home of the "
+                          "sacred Temple of the Tooth Relic, is a wonderful destination. "
+                          "I'm Travion — let me help you make the most of your time there!"),
+                "galle": ("Ayubowan! 🏰 Galle's 17th-century Dutch fort is one of Asia's "
+                          "best-preserved colonial landmarks. I'm Travion, ready to guide "
+                          "you through every corner of this historic coastal gem!"),
+                "ella": ("Ayubowan! 🌿 Ella's misty tea highlands, the iconic Nine Arches Bridge, "
+                         "and stunning mountain hikes are waiting for you. "
+                         "I'm Travion — let's plan your perfect Ella escape!"),
+                "colombo": ("Ayubowan! 🌆 Colombo blends colonial heritage with a buzzing modern "
+                            "city vibe — great food, markets, and the sea. "
+                            "I'm Travion, here to help you discover the best of the capital!"),
+                "mirissa": ("Ayubowan! 🐋 Mirissa is Sri Lanka's top spot for whale watching "
+                            "and dreamy palm-fringed beaches. "
+                            "I'm Travion — let me help you plan the perfect coastal getaway!"),
+                "dambulla": ("Ayubowan! ⛩️ The Dambulla Cave Temples are a breathtaking UNESCO "
+                             "World Heritage Site filled with ancient Buddha statues and murals. "
+                             "I'm Travion — ready to guide your visit!"),
+                "nuwara eliya": ("Ayubowan! 🍵 Nuwara Eliya's rolling tea estates and cool mountain "
+                                 "air make it Sri Lanka's 'Little England'. "
+                                 "I'm Travion — let's explore the hill country together!"),
+                "trincomalee": ("Ayubowan! 🌊 Trincomalee's crystal-clear waters, coral reefs, "
+                                "and beautiful beaches are some of Sri Lanka's best-kept secrets. "
+                                "I'm Travion — let me help plan your east coast adventure!"),
+                "jaffna": ("Ayubowan! 🏺 Jaffna offers a unique window into Sri Lanka's rich "
+                           "Tamil heritage, ancient temples, and vibrant culture. "
+                           "I'm Travion — let's discover the north together!"),
+            }
+            location_key = target_location.lower()
+            for key, message in location_greetings.items():
+                if key in location_key or location_key in key:
+                    return message
+            # Generic location-specific fallback
+            return (f"Ayubowan! 👋 {target_location} is a wonderful destination in Sri Lanka. "
+                    f"I'm Travion, your AI tour guide — let me help you plan an unforgettable "
+                    f"visit to {target_location}!")
+        return ("Ayubowan! 👋 Welcome to Travion, your AI guide to Sri Lanka. "
+                "From ancient Sigiriya to the misty hills of Ella and the golden shores of Mirissa — "
+                "I'm here to help you explore it all. Where would you like to go?")
 
     elif intent == IntentType.OFF_TOPIC:
-        return ("I'm Travion, specialized in Sri Lankan tourism. "
-                "I'd be happy to help you explore Sri Lanka's amazing "
-                "destinations, from ancient ruins to pristine beaches. "
-                "What would you like to know about Sri Lanka?")
+        return (
+            "😊 Hey! I'm **Travion**, your dedicated Sri Lanka travel guide — "
+            "I'm only set up to help with Sri Lanka tourism topics like destinations, "
+            "culture, transport, accommodation, and trip planning.\n\n"
+            "💡 **How about we explore Sri Lanka instead?** I can help you with:\n"
+            "• 🏛️ Must-see cultural sites like **Sigiriya** or **Kandy**\n"
+            "• 🏖️ Best beaches — **Mirissa**, **Unawatuna**, or **Arugam Bay**\n"
+            "• 🗺️ Planning a custom itinerary for your trip\n\n"
+            "What would you like to discover? 🇱🇰"
+        )
 
     elif intent == IntentType.TRIP_PLANNING:
-        # Generate basic itinerary from state
         itinerary = state.get("itinerary", [])
         constraints = state.get("_constraint_results", {})
+        location_label = f"**{target_location}**" if target_location else "**Sri Lanka**"
 
-        response_parts = [f"Here's an optimized plan for visiting {target_location or 'Sri Lanka'}:"]
+        response_parts = [f"🗺️ Here's your optimised plan for visiting {location_label}!\n"]
 
         if constraints.get("recommendation"):
-            response_parts.append(f"\n{constraints['recommendation']}")
+            response_parts.append(f"⚠️ **Heads up:** {constraints['recommendation']}\n")
 
         if itinerary:
-            response_parts.append("\nSuggested Schedule:")
+            response_parts.append("**Suggested Schedule:**\n")
             for slot in itinerary:
-                response_parts.append(f"- {slot['time']}: {slot['location']}")
+                line = f"⏰ **{slot['time']}** — 📍 **{slot['location']}**"
                 if slot.get("notes"):
-                    response_parts.append(f"  ({slot['notes']})")
+                    line += f" _(💡 {slot['notes']})_"
+                response_parts.append(line)
+        else:
+            response_parts.append(
+                f"I'd love to build you a full itinerary for {location_label}! "
+                "Just let me know how many days you have and what you enjoy most — "
+                "culture, beaches, wildlife, or hiking? 🏔️"
+            )
 
         return "\n".join(response_parts)
 
@@ -365,9 +500,23 @@ def generate_fallback_response(state: GraphState) -> str:
         if docs:
             best_doc = docs[0]
             location = best_doc.get("metadata", {}).get("location", target_location or "Sri Lanka")
-            return (f"Here's what I found about {location}:\n\n"
-                    f"{best_doc['content'][:500]}...")
+            content_preview = best_doc["content"][:400].strip()
+            return (
+                f"Here's what I know about **{location}** 📍\n\n"
+                f"{content_preview}\n\n"
+                f"💡 Want me to go deeper on any of this — best time to visit, "
+                f"how to get there, or what to eat nearby?"
+            )
         else:
-            return (f"I'd be happy to tell you more about "
-                    f"{target_location or 'Sri Lanka'}. Could you be more "
-                    "specific about what you'd like to know?")
+            loc_label = f"**{target_location}**" if target_location else "**Sri Lanka**"
+            return (
+                f"Great question about {loc_label}! 🌴 I want to give you the most "
+                f"accurate answer — could you be a little more specific about what "
+                f"you're looking for?\n\n"
+                f"For example:\n"
+                f"• 🕐 Best time to visit?\n"
+                f"• 🎫 Entry fees and tickets?\n"
+                f"• 🚗 How to get there?\n"
+                f"• 📸 Best photo spots?\n\n"
+                f"Just let me know and I'll help you out! 😊"
+            )

@@ -62,46 +62,51 @@ Grade: PARTIAL
 """
 
 
-def requires_external_info(query: str) -> bool:
+def requires_external_info(query: str) -> str:
     """
-    Check if query requires information not in the knowledge base.
+    Determine if and how urgently a query requires external (web) information.
 
-    These topics need web search:
-    - Hotels, accommodations, resorts
-    - Restaurants, food places
-    - Current prices, fees
-    - Transportation, tickets
-    - Weather, current conditions
-    - Recent events, news
+    Returns one of:
+      "always"   — Truly real-time data; always web search regardless of KB score
+      "fallback" — Possibly in KB; only web search when KB relevance < 0.65
+      "never"    — Static tourism content; KB is sufficient
 
     Args:
         query: User's query string
 
     Returns:
-        True if web search is needed
+        "always" | "fallback" | "never"
     """
     import re
     query_lower = query.lower()
 
-    # Topics that require web search (not in knowledge base)
-    external_topics = [
-        r"hotel[s]?", r"resort[s]?", r"accommodation[s]?", r"stay", r"lodge",
-        r"hostel[s]?", r"guesthouse[s]?", r"airbnb", r"booking",
-        r"restaurant[s]?", r"food", r"eat", r"dining", r"cafe",
-        r"price[s]?", r"cost[s]?", r"fee[s]?", r"ticket[s]?", r"budget",
-        r"transport", r"bus", r"train", r"taxi", r"uber", r"tuk.?tuk",
-        r"weather", r"forecast", r"rain", r"temperature",
-        r"open", r"closed", r"hours", r"timing",
-        r"current", r"today", r"now", r"latest", r"recent",
-        r"book", r"reserve", r"available", r"availability",
-        r"near", r"nearby", r"nearest", r"close to", r"around"
+    # Truly real-time — KB cannot have these, always go to web
+    realtime_patterns = [
+        r"\b(today|tonight|right now|currently|at the moment)\b",
+        r"\b(current|live)\s+(price|rate|fee|cost|weather|condition|status)\b",
+        r"\b(weather|forecast|rain|temperature|humidity)\b",
+        r"\b(book|booking|reserve|reservation|available|availability|check.?in|check.?out)\b",
+        r"\b(latest|recent|new|updated|2024|2025|2026)\b",
+        r"\b(open|closed|closing|opening)\s+(now|today|tomorrow|this week)\b",
+        r"\b(flight|visa|immigration|exchange rate|currency)\b",
     ]
-
-    for pattern in external_topics:
+    for pattern in realtime_patterns:
         if re.search(pattern, query_lower):
-            return True
+            return "always"
 
-    return False
+    # Possibly in KB for general info, but web adds value if KB is weak
+    supplementary_patterns = [
+        r"\b(hotel[s]?|resort[s]?|accommodation|stay|lodge|hostel|guesthouse|airbnb)\b",
+        r"\b(restaurant[s]?|cafe|eat|dining|food|meal)\b",
+        r"\b(price[s]?|cost[s]?|fee[s]?|ticket[s]?|budget|entry fee)\b",
+        r"\b(near|nearby|nearest|close to|around|distance from)\b",
+        r"\b(transport|bus|train|taxi|tuk.?tuk|uber|rent|hire)\b",
+    ]
+    for pattern in supplementary_patterns:
+        if re.search(pattern, query_lower):
+            return "fallback"
+
+    return "never"
 
 
 def calculate_relevance_score(
@@ -126,8 +131,8 @@ def calculate_relevance_score(
     Returns:
         Dict with relevance assessment
     """
-    # Check if query requires external info (hotels, prices, etc.)
-    needs_external = requires_external_info(query)
+    # Check how urgently external info is needed
+    external_need = requires_external_info(query)
 
     if not documents:
         return {
@@ -157,8 +162,8 @@ def calculate_relevance_score(
     # Combined scoring
     combined_score = (avg_score * 0.4 + top_score * 0.4 + location_match_ratio * 0.2)
 
-    # Force web search for external topics or fallback data
-    if needs_external:
+    # "always" = real-time query, must web search regardless of KB quality
+    if external_need == "always":
         return {
             "relevance": DocumentRelevance.PARTIAL,
             "score": combined_score,
@@ -166,7 +171,20 @@ def calculate_relevance_score(
             "top_similarity": top_score,
             "location_match_ratio": location_match_ratio,
             "document_count": len(documents),
-            "reason": "Query requires external information (hotels/prices/nearby/etc.)",
+            "reason": "Query requires real-time information (weather/booking/current prices)",
+            "needs_web_search": True
+        }
+
+    # "fallback" = KB may have enough; only web search if KB score is low
+    if external_need == "fallback" and combined_score < 0.65:
+        return {
+            "relevance": DocumentRelevance.PARTIAL,
+            "score": combined_score,
+            "avg_similarity": avg_score,
+            "top_similarity": top_score,
+            "location_match_ratio": location_match_ratio,
+            "document_count": len(documents),
+            "reason": "KB context insufficient for this query — supplementing with web search",
             "needs_web_search": True
         }
 
@@ -261,6 +279,7 @@ Grade this document's relevance (RELEVANT, PARTIAL, or IRRELEVANT):"""
     return grades
 
 
+@trace_node("grader")
 async def grader_node(state: GraphState, llm=None) -> GraphState:
     """
     Grader Node: Assess relevance of retrieved documents.
@@ -281,6 +300,8 @@ async def grader_node(state: GraphState, llm=None) -> GraphState:
         the agent to recognize its own knowledge gaps and take corrective
         action rather than generating hallucinated responses.
     """
+    import time as _time
+    _start = _time.time()
     query = state["user_query"]
     documents = state.get("retrieved_documents", [])
     target_location = state.get("target_location")
@@ -290,8 +311,8 @@ async def grader_node(state: GraphState, llm=None) -> GraphState:
     # Calculate heuristic relevance score
     relevance_result = calculate_relevance_score(query, documents, target_location)
 
-    # If LLM available, do detailed grading (but don't override external info requirement)
-    if llm and documents and not requires_external_info(query):
+    # If LLM available, do detailed grading (but not for real-time/supplementary queries)
+    if llm and documents and requires_external_info(query) == "never":
         try:
             llm_grades = await grade_documents_llm(query, documents, llm)
 
@@ -317,10 +338,18 @@ async def grader_node(state: GraphState, llm=None) -> GraphState:
                f"Needs web search: {relevance_result['needs_web_search']}")
 
     # Update state
+    _duration_ms = (_time.time() - _start) * 1000
+    next_step = "web_search" if relevance_result["needs_web_search"] else "shadow_monitor"
     return {
         **state,
         "document_relevance": relevance_result["relevance"],
         "needs_web_search": relevance_result["needs_web_search"],
+        "step_results": [{
+            "node": "grader",
+            "status": "success" if not relevance_result["needs_web_search"] else "warning",
+            "summary": f"Relevance: {relevance_result['relevance'].value} | Score: {relevance_result['score']:.3f} | Reason: {relevance_result['reason']} | Next: {next_step}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),
             "check_type": "grader",

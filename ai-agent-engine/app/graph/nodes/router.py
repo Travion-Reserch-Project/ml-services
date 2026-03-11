@@ -201,21 +201,47 @@ def classify_intent_heuristic(query: str) -> IntentType:
         if re.search(pattern, query_lower):
             return IntentType.REAL_TIME_INFO
 
-    # Off-topic patterns (non-Sri Lanka)
+    # Off-topic patterns (non-Sri Lanka / non-travel topics)
     offtopic_patterns = [
-        r"(france|paris|london|new york|tokyo|india|thailand)",
-        r"(code|programming|python|javascript)",
-        r"(recipe|cooking|food) (?!sri lanka)",
-        r"(stock|crypto|bitcoin|investment)",
+        # Other countries / cities
+        r"\b(france|paris|french|london|england|uk|britain|new york|usa|america|tokyo|japan|"
+        r"india|delhi|mumbai|thailand|bangkok|bali|indonesia|malaysia|singapore|australia|"
+        r"canada|germany|italy|rome|spain|dubai|uae|china|beijing|korea|vietnam|"
+        r"maldives|nepal|pakistan|bangladesh)\b",
+        # Tech / programming
+        r"\b(code|coding|programming|python|javascript|typescript|java|react|angular|"
+        r"sql|database|api|machine learning|ai model|chatgpt|openai|llm|neural network|"
+        r"html|css|git|github|docker|kubernetes|aws|cloud|server|linux)\b",
+        # Finance / crypto
+        r"\b(stock|crypto|bitcoin|ethereum|nft|investment|forex|trading|shares|dividend|"
+        r"portfolio|hedge fund|bank account|loan|mortgage)\b",
+        # Health / medical
+        r"\b(diagnose|diagnosis|symptoms|medicine|prescription|doctor|hospital|surgery|"
+        r"disease|cancer|diabetes|covid vaccine)\b",
+        # Non-Sri-Lankan food (only block if not combined with Sri Lanka)
+        r"\b(pizza|burger|sushi|tacos|pasta|french cuisine|italian food|mexican food)\b",
+        # General off-topic
+        r"\b(homework|essay|write my|politics|election|war|military|religion debate|"
+        r"legal advice|lawyer|lawsuit)\b",
     ]
     for pattern in offtopic_patterns:
         if re.search(pattern, query_lower):
+            # Double-check: if query also strongly mentions Sri Lanka, keep it as tourism
+            sri_lanka_signals = [
+                "sri lanka", "ceylon", "colombo", "kandy", "sigiriya", "galle",
+                "ella", "mirissa", "negombo", "trincomalee", "jaffna", "nuwara",
+                "dambulla", "anuradhapura", "polonnaruwa", "arugam", "yala", "horton",
+                "pinnawala", "bentota", "hikkaduwa", "unawatuna", "weligama",
+            ]
+            if any(signal in query_lower for signal in sri_lanka_signals):
+                continue  # Let it through as a tourism query
             return IntentType.OFF_TOPIC
 
     # Default to tourism query
     return IntentType.TOURISM_QUERY
 
 
+@trace_node("router")
 async def router_node(state: GraphState, llm=None) -> GraphState:
     """
     Router Node: Classify intent and extract entities from user query.
@@ -236,6 +262,8 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
         The router uses heuristic classification for speed (instant vs 5+ min LLM).
         Heuristics are sufficient for intent routing - LLM is saved for generation.
     """
+    import time
+    _start = time.time()
     query = state["user_query"]
     logger.info(f"Router processing: {query[:50]}...")
 
@@ -258,11 +286,18 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
         logger.info(f"Extracted target_location from query: {new_target_location}")
 
     # Update state
+    _duration_ms = (time.time() - _start) * 1000
     return {
         **state,
         "intent": intent,
         "target_location": new_target_location,
         "target_date": entities["date_reference"],
+        "step_results": [{
+            "node": "router",
+            "status": "success",
+            "summary": f"Intent: {intent.value} | Location: {new_target_location or 'none'} | Date: {entities['date_reference'] or 'none'} | Activities: {', '.join(entities['activities']) or 'none'}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [{
             "timestamp": datetime.now().isoformat(),
             "check_type": "router",

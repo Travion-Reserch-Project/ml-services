@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://travion.ai/schemas/selection-card.json",
+  "title": "SelectionCard",
+  "description": "Schema for HITL selection cards presented to users during the agent interrupt cycle. These cards represent hotel, restaurant, or activity candidates surfaced by the MCP search pipeline, allowing the user to choose before the agent resumes graph execution.",
+  "type": "object",
+  "required": ["card_id", "title"],
+  "properties": {
+    "card_id": {
+      "type": "string",
+      "description": "Unique identifier for the card (maps to search_candidate.id). Sent back to the resume endpoint as selectedCandidateId."
+    },
+    "title": {
+      "type": "string",
+      "description": "Primary display name (e.g., hotel name, restaurant name).",
+      "maxLength": 120
+    },
+    "subtitle": {
+      "type": ["string", "null"],
+      "description": "Secondary text such as location area, cuisine type, or neighbourhood.",
+      "maxLength": 200
+    },
+    "badge": {
+      "type": ["string", "null"],
+      "description": "Overlay badge text shown on the card image (e.g., 'Top Pick', 'Best Value', 'Closest').",
+      "maxLength": 30
+    },
+    "image_url": {
+      "type": ["string", "null"],
+      "description": "Primary image URL for the card hero image. Falls back to placeholder if null.",
+      "format": "uri"
+    },
+    "photo_urls": {
+      "type": "array",
+      "description": "Additional photo URLs for a gallery or carousel within the card.",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "maxItems": 10,
+      "default": []
+    },
+    "rating": {
+      "type": ["number", "null"],
+      "description": "Star rating (0.0–5.0) from Google Places or aggregated sources.",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "price_range": {
+      "type": ["string", "null"],
+      "description": "Price indicator (e.g., '$', '$$', '$$$', '$$$$').",
+      "enum": ["$", "$$", "$$$", "$$$$", null]
+    },
+    "vibe_match_score": {
+      "type": ["number", "null"],
+      "description": "Percentage (0–100) indicating how well this candidate matches the user's travel vibe/preferences. Computed by the recommendation engine.",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Short description or snippet about the candidate.",
+      "maxLength": 500
+    },
+    "tags": {
+      "type": "array",
+      "description": "Categorical tags (e.g., 'Beachfront', 'Pool', 'WiFi', 'Vegan-Friendly').",
+      "items": {
+        "type": "string",
+        "maxLength": 40
+      },
+      "maxItems": 10,
+      "default": []
+    },
+    "distance_km": {
+      "type": ["number", "null"],
+      "description": "Distance in kilometres from the nearest itinerary stop. Computed via Haversine.",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "card_id": "hotel_001_cinnamon_grand",
+      "title": "Cinnamon Grand Colombo",
+      "subtitle": "Colombo Fort · Luxury Hotel",
+      "badge": "Top Pick",
+      "image_url": "https://lh3.googleusercontent.com/places/XXXXXX",
+      "photo_urls": [
+        "https://lh3.googleusercontent.com/places/XXXXXX",
+        "https://lh3.googleusercontent.com/places/YYYYYY"
+      ],
+      "rating": 4.5,
+      "price_range": "$$$",
+      "vibe_match_score": 87,
+      "description": "5-star hotel in the heart of Colombo Fort, featuring a rooftop pool, spa, and multiple dining options.",
+      "tags": ["Pool", "Spa", "Fine Dining", "City Centre"],
+      "distance_km": 0.8
+    },
+    {
+      "card_id": "rest_003_ministry_of_crab",
+      "title": "Ministry of Crab",
+      "subtitle": "Dutch Hospital · Seafood",
+      "badge": "Best Value",
+      "image_url": "https://lh3.googleusercontent.com/places/ZZZZZZ",
+      "photo_urls": [],
+      "rating": 4.7,
+      "price_range": "$$",
+      "vibe_match_score": 92,
+      "description": "Celebrity chef restaurant famous for Sri Lankan crab served in the historic Dutch Hospital complex.",
+      "tags": ["Seafood", "Fine Dining", "Heritage"],
+      "distance_km": 1.2
+    }
+  ]
+}

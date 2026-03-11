@@ -1,0 +1,9 @@
+{
+  "routes": [
+    {
+      "route_id": "main_line_001",
+      "route_name": "Colombo - Matara Main Line",
+      "distance_km": 264
+    }
+  ]
+}

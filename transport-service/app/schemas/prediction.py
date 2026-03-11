@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class TransportPredictionRequest(BaseModel):
@@ -13,6 +13,12 @@ class TransportPredictionRequest(BaseModel):
     is_peak_hours: int = Field(0, ge=0, le=1, description="1 if peak hours, 0 otherwise")
     is_weekend: int = Field(0, ge=0, le=1, description="1 if weekend, 0 otherwise")
     is_long_weekend: int = Field(0, ge=0, le=1, description="1 if long weekend, 0 otherwise")
+    trip_hour: Optional[int] = Field(
+        None,
+        ge=0,
+        le=23,
+        description="Optional trip hour in 24h format (0-23) used for time-based overrides",
+    )
 
 
 class TransportPredictionResponse(BaseModel):

@@ -340,7 +340,11 @@ class ShadowMonitor:
     def __init__(self):
         """Initialize Shadow Monitor with all sub-systems."""
         self.event_sentinel = get_event_sentinel()
-        self.crowdcast = get_crowdcast()
+        try:
+            self.crowdcast = get_crowdcast()
+        except Exception as e:
+            logger.warning(f"⚠️ CrowdCast unavailable, running in degraded mode: {e}")
+            self.crowdcast = None
         self.golden_hour = get_golden_hour_agent()
 
         # Active Guardian components (initialized lazily to handle missing API keys)
@@ -573,6 +577,12 @@ class ShadowMonitor:
         is_poya: bool = False
     ) -> Dict:
         """Check crowd predictions."""
+        if self.crowdcast is None:
+            return {
+                "crowd_prediction": {"crowd_status": "UNKNOWN", "crowd_percentage": 50},
+                "optimal_time_suggestion": None,
+                "warnings": ["CrowdCast model unavailable"]
+            }
         try:
             prediction = self.crowdcast.predict(
                 location_type,
@@ -1169,6 +1179,7 @@ def get_shadow_monitor() -> ShadowMonitor:
     return _shadow_monitor
 
 
+@trace_node("shadow_monitor")
 async def shadow_monitor_node(state: GraphState) -> GraphState:
     """
     Shadow Monitor Node: Active Guardian Multi-constraint validation for generated plans.
@@ -1192,6 +1203,8 @@ async def shadow_monitor_node(state: GraphState) -> GraphState:
         just detect problems but actively suggests better alternatives,
         enabling the system to self-correct before generating a response.
     """
+    import time as _time
+    _start = _time.time()
     logger.info("Shadow Monitor (Active Guardian): Running comprehensive validation...")
 
     monitor = get_shadow_monitor()
@@ -1300,17 +1313,93 @@ async def shadow_monitor_node(state: GraphState) -> GraphState:
     # Determine if we need to trigger self-correction
     needs_correction = guardian_result.should_trigger_correction
 
-    return {
+    # ──────────────────────────────────────────────────────────────────
+    # Weather Interrupt Logic — USER_PROMPT_REQUIRED
+    # If OpenWeatherMap reports rain_probability > 80 % or wind > 60 km/h
+    # for *any* itinerary location, the graph triggers an interrupt and
+    # returns a friendly prompt asking the user to decide.
+    # ──────────────────────────────────────────────────────────────────
+    weather_interrupt = False
+    weather_prompt_message: Optional[str] = None
+    weather_prompt_options: Optional[list] = None
+
+    if guardian_result.weather_validation:
+        _wv = guardian_result.weather_validation
+        # Walk through per-location reports looking for severe weather
+        for loc_report in (_wv.get("location_reports") or []):
+            forecasts = loc_report.get("forecasts") or []
+            _loc_name = loc_report.get("location_name", target_location or "your destination")
+            for fc in forecasts:
+                rain_p = fc.get("rain_probability", 0)
+                wind_k = fc.get("wind_speed_kmh", 0)
+                if rain_p > 80 or wind_k > 60:
+                    weather_interrupt = True
+                    _reason_parts = []
+                    if rain_p > 80:
+                        _reason_parts.append(f"rain probability of {rain_p:.0f}%")
+                    if wind_k > 60:
+                        _reason_parts.append(f"winds of {wind_k:.0f} km/h")
+                    _reason = " and ".join(_reason_parts)
+                    weather_prompt_message = (
+                        f"⛈️ Heads up! The forecast shows {_reason} in "
+                        f"**{_loc_name}** around {fc.get('datetime_local', 'your planned time')}. "
+                        f"Should we switch to an indoor activity (e.g., Museum, Art Gallery) "
+                        f"or keep the plan but move it to a different time?"
+                    )
+                    weather_prompt_options = [
+                        {
+                            "id": "switch_indoor",
+                            "label": "Switch to an indoor activity",
+                            "description": f"Replace outdoor activity in {_loc_name} with a nearby museum, gallery, or cultural venue."
+                        },
+                        {
+                            "id": "reschedule",
+                            "label": "Keep the plan, change the time",
+                            "description": "Move this activity to a time slot with better weather."
+                        },
+                        {
+                            "id": "keep",
+                            "label": "Keep the plan as-is",
+                            "description": "Proceed despite the weather — I'll bring rain gear!"
+                        },
+                    ]
+                    break  # one interrupt is enough
+            if weather_interrupt:
+                break
+
+    _duration_ms = (_time.time() - _start) * 1000
+    violation_summary = f"{len(violations)} violations" if violations else "no violations"
+    recommendations_summary = "; ".join(guardian_result.recommendations[:2]) if guardian_result.recommendations else "none"
+
+    base_result = {
         **state,
         "constraint_violations": violations,
         "itinerary": itinerary,
+        "weather_data": guardian_result.weather_validation,
+        "step_results": [{
+            "node": "shadow_monitor",
+            "status": "warning" if violations else "success",
+            "summary": f"Status: {guardian_result.status.value} | Score: {guardian_result.overall_score:.1f}/100 | {violation_summary} | Recommendations: {recommendations_summary}",
+            "duration_ms": round(_duration_ms, 2),
+        }],
         "shadow_monitor_logs": state.get("shadow_monitor_logs", []) + [log_entry],
         # Store results for generator and correction loop
         "_constraint_results": constraint_results,
         "_guardian_result": guardian_result.dict(),
         "_needs_correction": needs_correction,
-        "_correction_hints": guardian_result.correction_hints
+        "_correction_hints": guardian_result.correction_hints,
     }
+
+    # Attach weather interrupt fields when triggered
+    if weather_interrupt:
+        base_result["weather_interrupt"] = True
+        base_result["weather_prompt_message"] = weather_prompt_message
+        base_result["weather_prompt_options"] = weather_prompt_options
+        # Set interrupt_reason so the graph can route to END
+        base_result["interrupt_reason"] = "USER_PROMPT_REQUIRED"
+        base_result["final_response"] = weather_prompt_message
+
+    return base_result
 
 
 # ============================================================================

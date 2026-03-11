@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     MAX_WEB_SEARCH_RESULTS: int = 5
 
     # LangSmith Monitoring Configuration
-    LANGCHAIN_TRACING_V2: bool = True
+    LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_API_KEY: Optional[str] = None
     LANGCHAIN_PROJECT: str = "travion-ai-engine"
     LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
@@ -113,6 +113,17 @@ class Settings(BaseSettings):
     # Active Guardian API Keys (Weather & News Validation)
     OPENWEATHER_API_KEY: Optional[str] = None
     NEWS_API_KEY: Optional[str] = None
+
+    # MCP (Model Context Protocol) Server Configuration
+    MCP_GOOGLE_MAPS_URL: Optional[str] = None
+    MCP_GOOGLE_MAPS_KEY: Optional[str] = None
+    MCP_YELP_URL: Optional[str] = None
+    MCP_YELP_KEY: Optional[str] = None
+    MCP_TOURISM_URL: Optional[str] = None
+    MCP_TOURISM_KEY: Optional[str] = None
+
+    # Google Maps API Key (direct Places API calls for restaurant search)
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
 
     # Service Reliability Configuration
     STRICT_VALIDATION: bool = Field(

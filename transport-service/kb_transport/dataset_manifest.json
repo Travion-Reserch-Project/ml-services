@@ -1,0 +1,84 @@
+{
+  "gis": {
+    "name": "National Spatial Data Infrastructure - Transport Layers",
+    "urls": [
+      "https://data.gov.lk/dataset/national-spatial-data-infrastructure-transport",
+      "https://www.survey.gov.lk/sdiv/geonetwork/srv/api"
+    ],
+    "description": "Roads, railways, airports, ports, transport layers",
+    "format": "WMS / GeoJSON / Shapefile",
+    "manual_download": true,
+    "instructions": "Visit NSDI portal and download transport WMS layers"
+  },
+  "roads": {
+    "name": "World Bank Road Network Shapefile",
+    "urls": [
+      "https://datacatalog.worldbank.org/search/dataset/sri-lanka-roads",
+      "https://energydata.info/dataset/road-network-of-sri-lanka"
+    ],
+    "description": "Class A/B roads, national road master plan",
+    "format": "Shapefile / GeoJSON",
+    "manual_download": true
+  },
+  "gis_free": {
+    "name": "Free Sri Lanka GIS Data",
+    "urls": [
+      "https://github.com/theagiletekproj/srilanka-geojson",
+      "https://data.humdata.org/dataset/sri-lanka-administrative-boundaries"
+    ],
+    "description": "Admin boundaries, provinces, districts",
+    "format": "GeoJSON",
+    "manual_download": false,
+    "note": "Can clone GitHub repo directly"
+  },
+  "railway_stats": {
+    "name": "Transport Statistics Dataset",
+    "urls": [
+      "https://data.gov.lk/dataset/transport-statistics",
+      "https://data.gov.lk/dataset/department-of-railway-statistics"
+    ],
+    "description": "Rail track length, passenger data, bus data",
+    "format": "CSV / Excel",
+    "manual_download": true
+  },
+  "gtfs": {
+    "name": "GTFS Research Dataset",
+    "urls": [
+      "https://zenodo.org/record/3630623"
+    ],
+    "description": "Stops, routes, trips, timetables, transfers, shapes",
+    "format": "GTFS (txt files)",
+    "manual_download": true,
+    "note": "Research dataset - may need academic access"
+  },
+  "transport_reports": {
+    "name": "Public Transport Reports",
+    "urls": [
+      "https://data.gov.lk/dataset/public-transport-report",
+      "https://www.transport.gov.lk/web/"
+    ],
+    "description": "Bus operational data, transport sector statistics",
+    "format": "PDF / CSV",
+    "manual_download": true
+  },
+  "traffic_signs": {
+    "name": "Sri Lanka Traffic Sign Dataset",
+    "urls": [
+      "https://www.kaggle.com/datasets/sujithknn/sri-lanka-traffic-sign-dataset"
+    ],
+    "description": "70 traffic sign classes, 10k+ images",
+    "format": "Images + JSON",
+    "manual_download": true,
+    "note": "Kaggle dataset - need API key"
+  },
+  "documents": {
+    "name": "Large Sri Lanka Document Dataset",
+    "urls": [
+      "https://huggingface.co/datasets/sinhala-nlp/sinhala_dataset"
+    ],
+    "description": "200k+ documents - tourism, law, policy, news",
+    "format": "Text / JSON",
+    "manual_download": true,
+    "note": "Filter for transport/tourism related only"
+  }
+}

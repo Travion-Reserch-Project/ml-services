@@ -118,20 +118,28 @@ except ImportError:
     OLLAMA_AVAILABLE = False
     ChatOllama = None
 
-from .state import GraphState, create_initial_state, TourPlanContext
+from .state import GraphState, create_initial_state, TourPlanContext, UserPreferences
 from .nodes import (
     router_node,
     retrieval_node,
     grader_node,
     web_search_node,
     shadow_monitor_node,
+    clarification_node,
     generator_node,
     verifier_node,
     tour_plan_generator_node,
+    hotel_search_node,
+    advanced_search_node,
+    selection_handler_node,
+    restaurant_selection_handler_node,
     route_by_intent,
     route_after_grading,
     route_after_verification,
+    route_after_clarification,
     route_to_plan_generator,
+    route_to_hotel_search,
+    should_trigger_advanced_search,
 )
 from ..config import settings
 
@@ -275,8 +283,13 @@ class TravionAgentGraph:
         workflow.add_node("grader", self._grader_wrapper)
         workflow.add_node("web_search", self._web_search_wrapper)
         workflow.add_node("shadow_monitor", self._shadow_monitor_wrapper)
+        workflow.add_node("clarification", self._clarification_wrapper)
         workflow.add_node("generate", self._generator_wrapper)
         workflow.add_node("tour_plan_generate", self._tour_plan_generator_wrapper)
+        workflow.add_node("hotel_search", self._hotel_search_wrapper)
+        workflow.add_node("advanced_search", self._advanced_search_wrapper)
+        workflow.add_node("selection_handler", self._selection_handler_wrapper)
+        workflow.add_node("restaurant_selection_handler", self._restaurant_selection_handler_wrapper)
         workflow.add_node("verify", self._verifier_wrapper)
 
         # Set entry point
@@ -290,7 +303,9 @@ class TravionAgentGraph:
                 "generate": "generate",           # Greetings/off-topic → direct generation
                 "retrieve": "retrieve",            # Tourism queries → retrieval
                 "web_search": "web_search",        # Real-time info → web search
-                "tour_plan": "retrieve"            # Tour plan → retrieval first
+                "tour_plan": "retrieve",           # Tour plan → retrieval first
+                "hotel_search": "hotel_search",    # Hotel/restaurant queries → web search
+                "advanced_search": "advanced_search",  # Advanced multi-step search
             }
         )
 
@@ -310,21 +325,61 @@ class TravionAgentGraph:
         # Web search → Shadow Monitor
         workflow.add_edge("web_search", "shadow_monitor")
 
-        # Shadow Monitor → Generate or Tour Plan Generate
+        # Shadow Monitor → Generate or Clarification (for tour plans)
         workflow.add_conditional_edges(
             "shadow_monitor",
             self._route_after_shadow_monitor,
             {
                 "generate": "generate",
-                "tour_plan_generate": "tour_plan_generate"
+                "clarification": "clarification"
+            }
+        )
+
+        # Clarification → Tour Plan Generate or END (if clarification needed)
+        workflow.add_conditional_edges(
+            "clarification",
+            self._route_after_clarification,
+            {
+                "tour_plan_generate": "tour_plan_generate",
+                END: END
             }
         )
 
         # Generate → Verify
         workflow.add_edge("generate", "verify")
-        
-        # Tour Plan Generate → Verify
-        workflow.add_edge("tour_plan_generate", "verify")
+
+        # Tour Plan Generate → conditional: restaurant HITL or verify
+        workflow.add_conditional_edges(
+            "tour_plan_generate",
+            self._route_after_tour_plan_generate,
+            {
+                "restaurant_selection_handler": "restaurant_selection_handler",
+                "verify": "verify",
+            }
+        )
+
+        # Restaurant Selection Handler → loop back to tour_plan_generate
+        # (second pass will have selected_restaurant_ids set, so it
+        #  skips the HITL check and generates the full plan)
+        workflow.add_edge("restaurant_selection_handler", "tour_plan_generate")
+
+        # Hotel Search → Verify
+        workflow.add_edge("hotel_search", "verify")
+
+        # Advanced Search → END (pauses for HITL via interrupt_before)
+        # When the graph resumes with a selected_search_candidate_id,
+        # it continues into selection_handler.
+        workflow.add_conditional_edges(
+            "advanced_search",
+            self._route_after_advanced_search,
+            {
+                "selection_handler": "selection_handler",
+                END: END,
+            }
+        )
+
+        # Selection Handler → Verify
+        workflow.add_edge("selection_handler", "verify")
 
         # Conditional edges from verifier
         workflow.add_conditional_edges(
@@ -336,9 +391,16 @@ class TravionAgentGraph:
             }
         )
 
-        # Compile the graph
+        # Compile the graph with interrupt support for HITL
+        # The advanced_search node sets pending_user_selection=True;
+        # the graph then ends. When the caller resumes with
+        # selected_search_candidate_id populated, it enters
+        # selection_handler to re-optimise the itinerary.
         self.memory = MemorySaver()
-        self.graph = workflow.compile(checkpointer=self.memory)
+        self.graph = workflow.compile(
+            checkpointer=self.memory,
+            interrupt_before=["selection_handler", "restaurant_selection_handler"],
+        )
 
         logger.info("LangGraph workflow compiled successfully")
 
@@ -347,15 +409,66 @@ class TravionAgentGraph:
         # Check if this is a tour plan request
         if state.get("tour_plan_context"):
             return "tour_plan"
-        
+
+        # Check if this is an advanced multi-step search
+        if should_trigger_advanced_search(state.get("user_query", "")):
+            return "advanced_search"
+
+        # Check if this is a hotel/restaurant search (legacy fallback)
+        if route_to_hotel_search(state):
+            return "hotel_search"
+
         # Otherwise use standard intent routing
         return route_by_intent(state)
 
+    def _route_after_advanced_search(self, state: GraphState) -> str:
+        """Route after advanced search.
+
+        If a user selection was already provided (graph resumed), proceed
+        to selection_handler.  Otherwise, the graph ends so the mobile
+        app can present the NEED_USER_SELECTION state.
+        """
+        if state.get("selected_search_candidate_id"):
+            return "selection_handler"
+        # End the graph — the interrupt_before on selection_handler will
+        # cause the graph to pause until the user provides a selection.
+        if state.get("pending_user_selection"):
+            return "selection_handler"  # Will be intercepted by interrupt_before
+        return END
+
     def _route_after_shadow_monitor(self, state: GraphState) -> str:
-        """Route after shadow monitor to either generator or tour plan generator."""
+        """Route after shadow monitor.
+
+        If a weather interrupt was triggered (rain > 80% or wind > 60 km/h),
+        END the graph immediately so the backend can return a USER_PROMPT_REQUIRED
+        state to the mobile app.  Otherwise continue to clarification (tour plans)
+        or generate.
+        """
+        if state.get("weather_interrupt"):
+            return END
         if state.get("tour_plan_context"):
-            return "tour_plan_generate"
+            return "clarification"
         return "generate"
+
+    def _route_after_clarification(self, state: GraphState) -> str:
+        """Route after clarification: end if user input needed, else generate plan."""
+        if state.get("clarification_needed"):
+            # Short-circuit: return the question to the user
+            # Set final_response so the graph returns properly
+            question = state.get("clarification_question", {})
+            return END
+        return "tour_plan_generate"
+
+    def _route_after_tour_plan_generate(self, state: GraphState) -> str:
+        """Route after tour plan generation.
+
+        If the node returned with ``pending_user_selection=True`` (restaurant
+        HITL), route to restaurant_selection_handler which will be
+        intercepted by ``interrupt_before``.  Otherwise proceed to verify.
+        """
+        if state.get("pending_restaurant_selection"):
+            return "restaurant_selection_handler"
+        return "verify"
 
     # Node wrappers that inject LLM
     async def _router_wrapper(self, state: GraphState) -> GraphState:
@@ -378,6 +491,10 @@ class TravionAgentGraph:
         """Wrapper for shadow monitor node."""
         return await shadow_monitor_node(state)
 
+    async def _clarification_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for clarification node."""
+        return await clarification_node(state, self.llm)
+
     async def _generator_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for generator node with LLM injection."""
         return await generator_node(state, self.llm)
@@ -385,6 +502,22 @@ class TravionAgentGraph:
     async def _tour_plan_generator_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for tour plan generator node with LLM injection."""
         return await tour_plan_generator_node(state, self.llm)
+
+    async def _hotel_search_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for hotel search node."""
+        return await hotel_search_node(state, self.llm)
+
+    async def _advanced_search_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for advanced multi-step search node."""
+        return await advanced_search_node(state, self.llm)
+
+    async def _selection_handler_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for HITL selection handler / itinerary re-optimization."""
+        return await selection_handler_node(state, self.llm)
+
+    async def _restaurant_selection_handler_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for restaurant HITL selection handler."""
+        return await restaurant_selection_handler_node(state, self.llm)
 
     async def _verifier_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for verifier node with LLM injection."""
@@ -396,7 +529,8 @@ class TravionAgentGraph:
         thread_id: Optional[str] = None,
         target_location: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        tour_plan_context: Optional[Dict[str, Any]] = None
+        tour_plan_context: Optional[Dict[str, Any]] = None,
+        user_preferences: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute the agent workflow for a user query.
@@ -407,24 +541,10 @@ class TravionAgentGraph:
             target_location: Optional location name to focus retrieval on
             conversation_history: Optional list of previous messages for context
             tour_plan_context: Optional context for tour plan generation
+            user_preferences: Optional user preference profile for personalization
 
         Returns:
-            Dict with final state including response and logs
-
-        Example:
-            >>> result = await agent.invoke("What's special about Sigiriya?")
-            >>> print(result["final_response"])
-
-            >>> # Location-specific chat
-            >>> result = await agent.invoke("What's the best time to visit?", target_location="Sigiriya")
-
-            >>> # With conversation history
-            >>> history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
-            >>> result = await agent.invoke("Tell me more", conversation_history=history)
-            
-            >>> # Tour plan generation
-            >>> context = {"selected_locations": [...], "start_date": "2026-01-05", "end_date": "2026-01-07"}
-            >>> result = await agent.invoke("Generate my tour plan", tour_plan_context=context)
+            Dict with final state including response, step results, and cultural tips
         """
         if not self.graph:
             return {
@@ -432,12 +552,13 @@ class TravionAgentGraph:
                 "final_response": "I'm having trouble processing your request. Please try again."
             }
 
-        # Create initial state with optional target location, conversation history, and tour plan context
+        # Create initial state with all optional parameters
         initial_state = create_initial_state(
-            query, 
+            query,
             target_location=target_location,
             conversation_history=conversation_history,
-            tour_plan_context=tour_plan_context
+            tour_plan_context=tour_plan_context,
+            user_preferences=user_preferences,
         )
 
         # Configure thread with tracing metadata
@@ -449,6 +570,7 @@ class TravionAgentGraph:
                 tags=["chat", target_location or "general"],
                 metadata={
                     "has_tour_plan_context": bool(tour_plan_context),
+                    "has_user_preferences": bool(user_preferences),
                     "conversation_length": len(conversation_history) if conversation_history else 0,
                 }
             )
@@ -483,7 +605,30 @@ class TravionAgentGraph:
                 "shadow_monitor_logs": final_state.get("shadow_monitor_logs"),
                 "reasoning_loops": final_state.get("reasoning_loops", 0),
                 "documents_retrieved": len(final_state.get("retrieved_documents", [])),
-                "web_search_used": len(final_state.get("web_search_results", [])) > 0
+                "web_search_used": len(final_state.get("web_search_results", [])) > 0,
+                # New fields for super-accuracy
+                "step_results": final_state.get("step_results", []),
+                "clarification_needed": final_state.get("clarification_needed", False),
+                "clarification_question": final_state.get("clarification_question"),
+                "cultural_tips": final_state.get("cultural_tips", []),
+                # New fields for super-optimized agent
+                "final_itinerary": final_state.get("final_itinerary"),
+                "weather_data": final_state.get("weather_data"),
+                "hotel_search_results": final_state.get("hotel_search_results", []),
+                "interrupt_reason": final_state.get("interrupt_reason"),
+                # Advanced Multi-Step Search & HITL fields
+                "search_candidates": final_state.get("search_candidates", []),
+                "pending_user_selection": final_state.get("pending_user_selection", False),
+                "selected_search_candidate": final_state.get("selected_search_candidate"),
+                # MCP Search — Selection Cards & Map-Ready Itinerary
+                "selection_cards": final_state.get("selection_cards"),
+                "prompt_text": final_state.get("prompt_text"),
+                "mcp_search_metadata": final_state.get("mcp_search_metadata"),
+                "map_ready_itinerary": final_state.get("map_ready_itinerary"),
+                # Weather Interrupt — USER_PROMPT_REQUIRED
+                "weather_interrupt": final_state.get("weather_interrupt", False),
+                "weather_prompt_message": final_state.get("weather_prompt_message"),
+                "weather_prompt_options": final_state.get("weather_prompt_options"),
             }
 
         except Exception as e:
@@ -494,6 +639,143 @@ class TravionAgentGraph:
                 "error": str(e),
                 "query": query,
                 "final_response": "I encountered an error while processing your request. Please try again."
+            }
+
+    async def resume_with_selection(
+        self,
+        thread_id: str,
+        selected_candidate_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Resume a paused graph after the user selects a search candidate.
+
+        This is the second half of the Human-in-the-Loop (HITL) flow:
+        1. The graph paused at the interrupt_before on selection_handler.
+        2. The mobile app presented candidates to the user.
+        3. The user selected a candidate, calling this method.
+        4. The graph resumes: selection_handler validates the pick,
+           recalculates Haversine travel times, and re-checks Event Sentinel.
+
+        Args:
+            thread_id: The same thread_id from the original invoke.
+            selected_candidate_id: The `id` of the chosen SearchCandidate.
+
+        Returns:
+            Dict with the final state after re-optimization.
+        """
+        if not self.graph:
+            return {
+                "error": "Graph not initialized",
+                "final_response": "Unable to process selection — graph not ready.",
+            }
+
+        config = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            # LangGraph 1.0.x resume pattern for interrupt_before:
+            # 1. Update the paused checkpoint state with the user's selection
+            # 2. Resume by calling ainvoke(None) — NOT ainvoke(update)
+            update = {"selected_search_candidate_id": selected_candidate_id}
+            await self.graph.aupdate_state(config, update)
+            final_state = await self.graph.ainvoke(None, config)
+
+            return {
+                "query": final_state.get("user_query", ""),
+                "intent": final_state.get("intent").value if final_state.get("intent") else None,
+                "final_response": final_state.get("final_response") or final_state.get("generated_response"),
+                "itinerary": final_state.get("itinerary"),
+                "tour_plan_metadata": final_state.get("tour_plan_metadata"),
+                "final_itinerary": final_state.get("final_itinerary"),
+                "constraint_violations": final_state.get("constraint_violations", []),
+                "step_results": final_state.get("step_results", []),
+                "cultural_tips": final_state.get("cultural_tips", []),
+                "weather_data": final_state.get("weather_data"),
+                "restaurant_recommendations": final_state.get("restaurant_recommendations", []),
+                "accommodation_recommendations": final_state.get("accommodation_recommendations", []),
+                "search_candidates": final_state.get("search_candidates", []),
+                "selected_search_candidate": final_state.get("selected_search_candidate"),
+                "pending_user_selection": final_state.get("pending_user_selection", False),
+                # MCP — Map-Ready Itinerary & Selection Cards
+                "selection_cards": final_state.get("selection_cards"),
+                "prompt_text": final_state.get("prompt_text"),
+                "mcp_search_metadata": final_state.get("mcp_search_metadata"),
+                "map_ready_itinerary": final_state.get("map_ready_itinerary"),
+                # Weather interrupt fields (in case another interrupt fires)
+                "weather_interrupt": final_state.get("weather_interrupt", False),
+                "weather_prompt_message": final_state.get("weather_prompt_message"),
+                "weather_prompt_options": final_state.get("weather_prompt_options"),
+            }
+
+        except Exception as e:
+            import traceback
+            logger.error(f"Resume with selection failed: {e}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            return {
+                "error": str(e),
+                "final_response": "I encountered an error processing your selection. Please try again.",
+            }
+
+    async def resume_with_weather_choice(
+        self,
+        thread_id: str,
+        user_choice: str,
+    ) -> Dict[str, Any]:
+        """
+        Resume a graph paused due to a USER_PROMPT_REQUIRED weather interrupt.
+
+        The mobile app showed the weather prompt and the user picked one of:
+            - ``switch_indoor``: Replace with an indoor alternative
+            - ``reschedule``: Same activity, different time
+            - ``keep``: Proceed despite bad weather
+
+        The graph resumes from the shadow_monitor checkpoint, feeds the
+        choice back, and lets the downstream nodes (generator / tour
+        plan generator) incorporate it.
+
+        Args:
+            thread_id: Thread ID from the original invoke.
+            user_choice: One of ``switch_indoor``, ``reschedule``, ``keep``.
+
+        Returns:
+            Dict with the final state after re-processing.
+        """
+        if not self.graph:
+            return {
+                "error": "Graph not initialized",
+                "final_response": "Unable to process weather choice — graph not ready.",
+            }
+
+        config = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            # LangGraph 1.0.x resume pattern: update_state then ainvoke(None)
+            update = {
+                "user_weather_choice": user_choice,
+                "weather_interrupt": False,       # clear the interrupt flag
+                "interrupt_reason": None,
+            }
+            await self.graph.aupdate_state(config, update)
+            final_state = await self.graph.ainvoke(None, config)
+
+            return {
+                "query": final_state.get("user_query", ""),
+                "intent": final_state.get("intent").value if final_state.get("intent") else None,
+                "final_response": final_state.get("final_response") or final_state.get("generated_response"),
+                "itinerary": final_state.get("itinerary"),
+                "final_itinerary": final_state.get("final_itinerary"),
+                "constraint_violations": final_state.get("constraint_violations", []),
+                "step_results": final_state.get("step_results", []),
+                "weather_interrupt": False,
+                "map_ready_itinerary": final_state.get("map_ready_itinerary"),
+            }
+
+        except Exception as e:
+            import traceback
+            logger.error(f"Resume with weather choice failed: {e}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            return {
+                "error": str(e),
+                "final_response": "I encountered an error processing your weather choice. Please try again.",
             }
 
     async def stream(
@@ -607,7 +889,8 @@ async def invoke_agent(
     thread_id: Optional[str] = None,
     target_location: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
-    tour_plan_context: Optional[Dict[str, Any]] = None
+    tour_plan_context: Optional[Dict[str, Any]] = None,
+    user_preferences: Optional[Dict[str, Any]] = None
 ) -> Dict:
     """
     Convenience function to invoke the agent.
@@ -618,15 +901,53 @@ async def invoke_agent(
         target_location: Optional location name to focus retrieval on
         conversation_history: Optional list of previous messages for context
         tour_plan_context: Optional context for tour plan generation
+        user_preferences: Optional user preference profile for personalization
 
     Returns:
-        Dict with agent response
+        Dict with agent response including step_results, cultural_tips, clarification
     """
     agent = get_agent()
     return await agent.invoke(
-        query, 
-        thread_id, 
-        target_location=target_location, 
+        query,
+        thread_id,
+        target_location=target_location,
         conversation_history=conversation_history,
-        tour_plan_context=tour_plan_context
+        tour_plan_context=tour_plan_context,
+        user_preferences=user_preferences,
     )
+
+
+async def resume_agent_with_selection(
+    thread_id: str,
+    selected_candidate_id: str,
+) -> Dict:
+    """
+    Convenience function to resume the agent after a HITL selection.
+
+    Args:
+        thread_id: Thread ID from the original invoke.
+        selected_candidate_id: The ID of the candidate the user selected.
+
+    Returns:
+        Dict with re-optimized itinerary and selection result.
+    """
+    agent = get_agent()
+    return await agent.resume_with_selection(thread_id, selected_candidate_id)
+
+
+async def resume_agent_with_weather_choice(
+    thread_id: str,
+    user_choice: str,
+) -> Dict:
+    """
+    Convenience function to resume the agent after a weather interrupt.
+
+    Args:
+        thread_id: Thread ID from the original invoke.
+        user_choice: One of "switch_indoor", "reschedule", or "keep".
+
+    Returns:
+        Dict with the resumed graph result.
+    """
+    agent = get_agent()
+    return await agent.resume_with_weather_choice(thread_id, user_choice)
