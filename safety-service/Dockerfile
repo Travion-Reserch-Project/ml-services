@@ -32,8 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /root/.local /root/.local
+# Create non-root user before copying dependencies
+RUN useradd -m -u 1001 mluser
+
+# Copy Python packages from builder into mluser home
+COPY --from=builder /root/.local /home/mluser/.local
 
 # Copy application code (NO MODELS - downloaded at runtime)
 COPY app.py .
@@ -45,7 +48,7 @@ COPY requirements.txt .
 RUN mkdir -p model data
 
 # Make sure scripts are available in PATH
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/home/mluser/.local/bin:$PATH
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -54,9 +57,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV MODEL_SOURCE=mlflow
 ENV MODEL_CACHE_DIR=/app/model
 
-# Create non-root user
-RUN useradd -m -u 1001 mluser && \
-    chown -R mluser:mluser /app
+# Ensure app and user dependencies are owned by mluser
+RUN chown -R mluser:mluser /app /home/mluser/.local
 USER mluser
 
 EXPOSE 8003
