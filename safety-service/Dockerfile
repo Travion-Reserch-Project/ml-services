@@ -1,6 +1,6 @@
 # Multi-stage build to reduce image size
 # Stage 1: Build dependencies
-FROM python:3.9-slim AS builder
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 2: Runtime image (much smaller, no models included)
-FROM python:3.9-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
