@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Dockerfile for AI Agent Engine
 # LangGraph agentic workflow with LLM integration
 # Python 3.10+
@@ -14,11 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python build tools
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel
 
 # Copy and install requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r requirements.txt
 
 # Stage 2: Runtime image
 FROM python:3.10-slim

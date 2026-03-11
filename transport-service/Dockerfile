@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build to reduce image size
 # Stage 1: Build dependencies
 FROM python:3.9-slim AS builder
@@ -12,17 +14,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies in separate layers for better caching
-RUN pip install --upgrade pip
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --upgrade pip
 
 # Install PyTorch CPU separately (cached layer)
-RUN pip install --no-cache-dir --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Install other dependencies (only rebuilds if requirements.txt changes)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --user -r requirements.txt
 
 # Download spaCy model
-RUN python -m spacy download en_core_web_sm
+RUN --mount=type=cache,target=/root/.cache/pip \
+  python -m spacy download en_core_web_sm
 
 # Stage 2: Runtime image (much smaller, no models included)
 FROM python:3.9-slim

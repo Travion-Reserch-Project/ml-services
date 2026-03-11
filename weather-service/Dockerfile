@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Dockerfile for Weather Service
 # Computer Vision-based UV risk and Fitzpatrick skin type detection
 # Python 3.10 (required for absl-py 2.4.0)
@@ -16,14 +18,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python build tools
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel
 
 # Install PyTorch CPU (separate layer for caching)
-RUN pip install --no-cache-dir --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Copy and install requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r requirements.txt
 
 # Stage 2: Runtime image
 FROM python:3.10-slim
