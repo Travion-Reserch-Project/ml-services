@@ -27,6 +27,10 @@ from .requests import (
     UserPreferenceScores,
     LocationDescriptionRequest,
     SimpleRecommendationRequest,
+    # Image Search & Validation
+    ImageSearchRequest,
+    ImageUploadSearchRequest,
+    ImageValidateRequest,
 )
 from .responses import (
     ChatResponse,
@@ -57,6 +61,10 @@ from .responses import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
+    # Vision / Image Search
+    ImageSearchResultResponse,
+    ImageSearchResponse,
+    ImageValidateResponse,
     # Hotel/Restaurant search
     HotelSearchResultResponse,
     HotelSearchResponse,
@@ -97,6 +105,10 @@ __all__ = [
     "UserPreferenceScores",
     "LocationDescriptionRequest",
     "SimpleRecommendationRequest",
+    # Image Search & Validation requests
+    "ImageSearchRequest",
+    "ImageUploadSearchRequest",
+    "ImageValidateRequest",
     # Responses
     "ChatResponse",
     "ItinerarySlotResponse",
@@ -126,6 +138,10 @@ __all__ = [
     "CalculationMetadata",
     "SolarPositionResponse",
     "PhysicsGoldenHourResponse",
+    # Vision / Image Search
+    "ImageSearchResultResponse",
+    "ImageSearchResponse",
+    "ImageValidateResponse",
     # Hotel/Restaurant search
     "HotelSearchResultResponse",
     "HotelSearchResponse",

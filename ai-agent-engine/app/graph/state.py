@@ -31,6 +31,7 @@ class IntentType(str, Enum):
     TOURISM_QUERY = "tourism_query"
     TRIP_PLANNING = "trip_planning"
     REAL_TIME_INFO = "real_time_info"
+    IMAGE_QUERY = "image_query"
     OFF_TOPIC = "off_topic"
 
 
@@ -249,6 +250,30 @@ class CulturalTip(TypedDict):
     location: str
     tip: str
     category: str
+
+
+class ImageSearchResult(TypedDict):
+    """
+    Result from CLIP-based image search in the image_knowledge collection.
+
+    Attributes:
+        image_id: Unique image identifier (e.g., "sigiriya_lion_rock_01")
+        location_name: Name of the tourism location
+        description: Description of the image / location
+        image_url: URL to the original image (Google Places or Wikimedia)
+        file_path: Local file path relative to project root
+        similarity_score: Cosine similarity from CLIP embedding search (0-1)
+        tags: Comma-separated tags
+        coordinates: lat/lng of the location
+    """
+    image_id: str
+    location_name: str
+    description: str
+    image_url: str
+    file_path: str
+    similarity_score: float
+    tags: str
+    coordinates: Optional[Dict[str, float]]
 
 
 class HotelSearchResult(TypedDict):
@@ -558,6 +583,13 @@ class GraphState(TypedDict):
     # Map-Ready Itinerary (post-selection re-optimised output)
     map_ready_itinerary: Optional[Dict[str, Any]]
 
+    # Vision / Image Search State
+    uploaded_image_base64: Optional[str]
+    uploaded_image_validated: Optional[bool]
+    image_validation_message: Optional[str]
+    image_search_results: List[ImageSearchResult]
+    has_image_query: bool
+
     # Weather Interrupt — USER_PROMPT_REQUIRED state
     weather_interrupt: Optional[bool]
     weather_prompt_message: Optional[str]
@@ -574,7 +606,8 @@ def create_initial_state(
     target_location: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     tour_plan_context: Optional[TourPlanContext] = None,
-    user_preferences: Optional[UserPreferences] = None
+    user_preferences: Optional[UserPreferences] = None,
+    uploaded_image_base64: Optional[str] = None,
 ) -> GraphState:
     """
     Factory function to create a fresh GraphState for a new query.
@@ -585,6 +618,7 @@ def create_initial_state(
         conversation_history: Optional list of previous messages for conversation context
         tour_plan_context: Optional context for tour plan generation
         user_preferences: Optional user preference profile for personalized planning
+        uploaded_image_base64: Optional base64-encoded image for CLIP visual search
 
     Returns:
         GraphState: Initialized state ready for graph execution
@@ -655,6 +689,11 @@ def create_initial_state(
         "mcp_search_metadata": None,
         "pending_restaurant_selection": None,
         "map_ready_itinerary": None,
+        "uploaded_image_base64": uploaded_image_base64,
+        "uploaded_image_validated": None,
+        "image_validation_message": None,
+        "image_search_results": [],
+        "has_image_query": bool(uploaded_image_base64),
         "weather_interrupt": None,
         "weather_prompt_message": None,
         "weather_prompt_options": None,

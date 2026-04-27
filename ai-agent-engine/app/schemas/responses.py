@@ -80,6 +80,28 @@ class ShadowMonitorLogResponse(BaseModel):
     details: str
 
 
+class ImageSearchResultResponse(BaseModel):
+    """
+    Response model for a single image search result from CLIP-based retrieval.
+
+    Attributes:
+        image_id: Unique image identifier
+        location_name: Tourism location name
+        description: Image / location description
+        image_url: URL to the original image
+        similarity_score: Cosine similarity from CLIP search (0-1)
+        tags: Comma-separated tags
+        coordinates: lat/lng of the location
+    """
+    image_id: str
+    location_name: str
+    description: str
+    image_url: str = ""
+    similarity_score: float
+    tags: str = ""
+    coordinates: Optional[Dict[str, float]] = None
+
+
 class ChatResponse(BaseModel):
     """
     Response model for the main chat endpoint.
@@ -92,6 +114,8 @@ class ChatResponse(BaseModel):
         constraints: Any constraint violations detected
         reasoning_logs: Shadow monitor audit trail
         metadata: Additional response metadata
+        image_results: Image search results from CLIP-based retrieval
+        image_validation_message: Validation message for uploaded images
     """
     query: str
     intent: Optional[str] = None
@@ -100,6 +124,8 @@ class ChatResponse(BaseModel):
     constraints: Optional[List[ConstraintViolationResponse]] = None
     reasoning_logs: Optional[List[ShadowMonitorLogResponse]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    image_results: Optional[List[ImageSearchResultResponse]] = None
+    image_validation_message: Optional[str] = None
 
     class Config:
         json_schema_extra = {
@@ -1320,5 +1346,78 @@ class SimpleRecommendationResponse(BaseModel):
                         "description": "Ancient rock fortress with stunning views"
                     }
                 ]
+            }
+        }
+
+
+# =============================================================================
+# IMAGE SEARCH & VALIDATION RESPONSES
+# =============================================================================
+
+class ImageSearchResponse(BaseModel):
+    """
+    Response model for text-to-image and image-to-image search endpoints.
+
+    Attributes:
+        query: Original search query (text or "image_upload")
+        results: List of matched images sorted by similarity
+        total_results: Number of results returned
+        embedding_model: CLIP model used for search
+        validated: Whether the uploaded image passed tourism validation (None for text queries)
+        validation_message: Validation message (None for text queries)
+    """
+    query: str
+    results: List[ImageSearchResultResponse]
+    total_results: int
+    embedding_model: str = "openai/clip-vit-base-patch32"
+    validated: Optional[bool] = None
+    validation_message: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "ancient rock fortress with lion paws",
+                "results": [
+                    {
+                        "image_id": "sigiriya_lion_rock_01",
+                        "location_name": "Sigiriya Lion Rock",
+                        "description": "The ancient Sigiriya Rock Fortress rising above the jungle",
+                        "image_url": "https://example.com/sigiriya_01.jpg",
+                        "similarity_score": 0.2931,
+                        "tags": "heritage,fortress,ancient,UNESCO",
+                        "coordinates": {"lat": 7.957, "lng": 80.7603}
+                    }
+                ],
+                "total_results": 1,
+                "embedding_model": "openai/clip-vit-base-patch32"
+            }
+        }
+
+
+class ImageValidateResponse(BaseModel):
+    """
+    Response model for image validation-only endpoint.
+
+    Attributes:
+        is_valid: Whether the image is a valid tourism destination
+        message: Human-readable validation message
+        positive_score: CLIP classification score for tourism labels
+        negative_score: CLIP classification score for non-tourism labels
+        rejection_reason: Reason for rejection (None if valid)
+    """
+    is_valid: bool
+    message: str
+    positive_score: float
+    negative_score: float
+    rejection_reason: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "is_valid": True,
+                "message": "Image appears to be a valid Sri Lankan tourism destination.",
+                "positive_score": 0.412,
+                "negative_score": 0.198,
+                "rejection_reason": None
             }
         }

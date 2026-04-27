@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     RELEVANCE_THRESHOLD: float = 0.7
     MAX_WEB_SEARCH_RESULTS: int = 5
 
+    # CLIP / Multimodal Image Search Configuration
+    CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
+    CLIP_DEVICE: str = "cpu"  # "cpu" or "cuda"
+    IMAGE_CHROMA_PERSIST_DIR: str = "./vector_db"  # Image collection path (separate from text KB)
+    IMAGE_COLLECTION_NAME: str = "image_knowledge"
+    IMAGE_UPLOAD_MAX_SIZE_MB: int = 10
+    IMAGE_VALIDATION_THRESHOLD: float = 0.25
+    IMAGE_RETRIEVAL_TOP_K: int = 5
+
     # LangSmith Monitoring Configuration
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_API_KEY: Optional[str] = None

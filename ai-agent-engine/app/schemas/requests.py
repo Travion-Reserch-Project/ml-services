@@ -21,6 +21,7 @@ class ChatRequest(BaseModel):
         thread_id: Optional conversation thread ID for context persistence
         user_id: Optional user ID for user-specific chat isolation
         stream: Whether to stream the response
+        image_base64: Optional base64-encoded image for visual search
     """
     message: str = Field(
         ...,
@@ -40,6 +41,14 @@ class ChatRequest(BaseModel):
     stream: bool = Field(
         False,
         description="Whether to stream the response"
+    )
+    image_base64: Optional[str] = Field(
+        None,
+        description=(
+            "Base64-encoded image for visual search (JPEG/PNG/WebP). "
+            "May include data URI prefix (e.g., 'data:image/jpeg;base64,...'). "
+            "When provided, triggers CLIP-based image-to-image search."
+        )
     )
 
 
@@ -106,6 +115,14 @@ class LocationChatRequest(BaseModel):
     conversation_history: Optional[List[ConversationMessage]] = Field(
         None,
         description="Previous messages in the conversation for context"
+    )
+    image_base64: Optional[str] = Field(
+        None,
+        description=(
+            "Base64-encoded image for visual search (JPEG/PNG/WebP). "
+            "When provided, triggers CLIP-based image-to-image search "
+            "filtered to this location."
+        )
     )
 
     class Config:
@@ -840,5 +857,131 @@ class SimpleRecommendationRequest(BaseModel):
                 "top_k": 5,
                 "outdoor_only": None,
                 "min_match_score": 0.35
+            }
+        }
+
+
+# =============================================================================
+# IMAGE SEARCH & VALIDATION REQUESTS
+# =============================================================================
+
+class ImageSearchRequest(BaseModel):
+    """
+    Request model for text-to-image search endpoint.
+
+    Uses CLIP text encoder to search the image_knowledge ChromaDB collection
+    for visually matching tourism images.
+
+    Attributes:
+        query: Natural language description of the desired image
+        location_filter: Optional location name to restrict results
+        top_k: Number of results to return (default: 5)
+    """
+    query: str = Field(
+        ...,
+        min_length=2,
+        max_length=500,
+        description="Text query describing the image you're looking for",
+        examples=[
+            "sunset at Sigiriya Rock",
+            "beautiful tropical beach with clear water",
+            "ancient temple with Buddha statues",
+        ]
+    )
+    location_filter: Optional[str] = Field(
+        None,
+        description="Optional location name to filter results (exact match)",
+        examples=["Sigiriya Lion Rock", "Galle Fort"]
+    )
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of image results to return",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "ancient rock fortress with lion paws",
+                "top_k": 5
+            }
+        }
+
+
+class ImageUploadSearchRequest(BaseModel):
+    """
+    Request model for image-to-image search endpoint.
+
+    The user uploads a base64-encoded image. The CLIP image encoder generates
+    an embedding, which is compared against the image_knowledge collection to
+    find visually similar Sri Lankan tourism destinations.
+
+    Attributes:
+        image_base64: Base64-encoded image (JPEG/PNG/WebP)
+        message: Optional text message for context
+        location_filter: Optional location name to restrict results
+        top_k: Number of results to return
+        validate: Whether to run tourism validation before search
+    """
+    image_base64: str = Field(
+        ...,
+        min_length=100,
+        description=(
+            "Base64-encoded image data (JPEG/PNG/WebP). "
+            "May include data URI prefix (e.g., 'data:image/jpeg;base64,...')."
+        )
+    )
+    message: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Optional text message for context (e.g., 'Where is this place?')",
+    )
+    location_filter: Optional[str] = Field(
+        None,
+        description="Optional location name to filter results",
+    )
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of image results to return",
+    )
+    run_validation: bool = Field(
+        default=True,
+        description="Run tourism image validation before search (reject non-tourism images)",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_base64": "data:image/jpeg;base64,/9j/4AAQ...",
+                "message": "Where is this place?",
+                "top_k": 5,
+                "run_validation": True
+            }
+        }
+
+
+class ImageValidateRequest(BaseModel):
+    """
+    Request model for image validation-only endpoint.
+
+    Validates whether a base64-encoded image is a Sri Lankan tourism
+    destination using CLIP zero-shot classification.
+
+    Attributes:
+        image_base64: Base64-encoded image (JPEG/PNG/WebP)
+    """
+    image_base64: str = Field(
+        ...,
+        min_length=100,
+        description="Base64-encoded image data to validate",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_base64": "data:image/jpeg;base64,/9j/4AAQ..."
             }
         }

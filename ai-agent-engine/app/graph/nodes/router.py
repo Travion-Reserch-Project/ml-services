@@ -178,6 +178,19 @@ def classify_intent_heuristic(query: str) -> IntentType:
         if re.match(pattern, query_lower):
             return IntentType.GREETING
 
+    # Image / visual query patterns
+    image_patterns = [
+        r"(show|find|get|display|see)\s+(me\s+)?(photo|image|picture|pic)s?\b",
+        r"\b(photo|image|picture|pic)s?\s+(of|from|at|for)\b",
+        r"what does .+ look like",
+        r"how does .+ look",
+        r"\b(visual|visually|gallery|album)\b",
+        r"(upload|uploaded|sent|sending)\s+(a\s+)?(photo|image|picture)",
+    ]
+    for pattern in image_patterns:
+        if re.search(pattern, query_lower):
+            return IntentType.IMAGE_QUERY
+
     # Trip planning patterns
     planning_patterns = [
         r"plan (a |my )?(trip|visit|tour|itinerary)",
@@ -309,7 +322,7 @@ async def router_node(state: GraphState, llm=None) -> GraphState:
     }
 
 
-def route_by_intent(state: GraphState) -> Literal["generate", "retrieve", "web_search"]:
+def route_by_intent(state: GraphState) -> Literal["generate", "retrieve", "web_search", "vision_retrieve"]:
     """
     Routing function for LangGraph conditional edges.
 
@@ -323,10 +336,16 @@ def route_by_intent(state: GraphState) -> Literal["generate", "retrieve", "web_s
     """
     intent = state.get("intent")
 
+    # If user uploaded an image, always route to vision retrieval
+    if state.get("uploaded_image_base64"):
+        return "vision_retrieve"
+
     if intent == IntentType.GREETING:
         return "generate"
     elif intent == IntentType.OFF_TOPIC:
         return "generate"
+    elif intent == IntentType.IMAGE_QUERY:
+        return "vision_retrieve"
     elif intent == IntentType.REAL_TIME_INFO:
         return "web_search"
     else:

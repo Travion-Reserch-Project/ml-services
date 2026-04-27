@@ -76,6 +76,13 @@ from .schemas import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
+    # Vision / Image Search
+    ImageSearchResultResponse,
+    ImageSearchResponse,
+    ImageValidateResponse,
+    ImageSearchRequest,
+    ImageUploadSearchRequest,
+    ImageValidateRequest,
     # Hotel/Restaurant search
     HotelSearchResultResponse,
     HotelSearchResponse,
@@ -428,7 +435,8 @@ async def chat(request: ChatRequest):
         # Invoke the agent
         result = await invoke_agent(
             query=request.message,
-            thread_id=scoped_thread_id
+            thread_id=scoped_thread_id,
+            uploaded_image_base64=request.image_base64,
         )
 
         # Check for errors
@@ -466,8 +474,14 @@ async def chat(request: ChatRequest):
                 "reasoning_loops": result.get("reasoning_loops", 0),
                 "documents_retrieved": result.get("documents_retrieved", 0),
                 "web_search_used": result.get("web_search_used", False),
+                "has_image_query": result.get("has_image_query", False),
                 **_extract_sources(result),
-            }
+            },
+            image_results=[
+                ImageSearchResultResponse(**img)
+                for img in (result.get("image_search_results") or [])
+            ] if result.get("image_search_results") else None,
+            image_validation_message=result.get("image_validation_message"),
         )
 
     except HTTPException:
@@ -545,7 +559,8 @@ async def location_chat(request: LocationChatRequest):
             query=enriched_query,
             thread_id=scoped_thread_id,
             target_location=request.location_name,
-            conversation_history=conversation_history
+            conversation_history=conversation_history,
+            uploaded_image_base64=request.image_base64,
         )
 
         # Check for errors
@@ -584,14 +599,198 @@ async def location_chat(request: LocationChatRequest):
                 "documents_retrieved": result.get("documents_retrieved", 0),
                 "web_search_used": result.get("web_search_used", False),
                 "target_location": request.location_name,
+                "has_image_query": result.get("has_image_query", False),
                 **_extract_sources(result),
-            }
+            },
+            image_results=[
+                ImageSearchResultResponse(**img)
+                for img in (result.get("image_search_results") or [])
+            ] if result.get("image_search_results") else None,
+            image_validation_message=result.get("image_validation_message"),
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Location chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# IMAGE SEARCH & VALIDATION ENDPOINTS
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/search",
+    response_model=ImageSearchResponse,
+    tags=["Image Search"],
+    summary="Text-to-image search using CLIP embeddings",
+    description="""
+    Search the image knowledge base using a natural language text query.
+
+    The query is encoded with CLIP's text encoder and compared against
+    pre-computed CLIP image embeddings in the `image_knowledge` ChromaDB
+    collection (512-dim cosine similarity).
+
+    Examples:
+    - "sunset at Sigiriya Rock" → finds sunset photos of Sigiriya
+    - "beautiful tropical beach with clear water" → finds beach photos
+    - "ancient temple with Buddha statues" → finds temple photos
+
+    Optionally filter by location name for location-scoped searches.
+    """
+)
+async def image_search(request: ImageSearchRequest):
+    """
+    Text-to-image search endpoint.
+
+    Args:
+        request: ImageSearchRequest with text query
+
+    Returns:
+        ImageSearchResponse with matched images sorted by similarity
+    """
+    try:
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+
+        service = get_image_vectordb_service()
+        results = service.search_by_text(
+            query=request.query,
+            top_k=request.top_k,
+            location_filter=request.location_filter,
+        )
+
+        return ImageSearchResponse(
+            query=request.query,
+            results=[ImageSearchResultResponse(**r) for r in results],
+            total_results=len(results),
+        )
+
+    except Exception as e:
+        logger.error(f"Image search endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/search/upload",
+    response_model=ImageSearchResponse,
+    tags=["Image Search"],
+    summary="Image-to-image search using uploaded photo",
+    description="""
+    Upload a base64-encoded image to find visually similar Sri Lankan
+    tourism destinations.
+
+    The image is encoded with CLIP's image encoder and compared against
+    the image_knowledge collection. Optionally validates the image is
+    a tourism destination before searching.
+
+    Supported formats: JPEG, PNG, WebP.
+    Max size: 10 MB (configurable via IMAGE_UPLOAD_MAX_SIZE_MB).
+    """
+)
+async def image_upload_search(request: ImageUploadSearchRequest):
+    """
+    Image-to-image search endpoint.
+
+    Args:
+        request: ImageUploadSearchRequest with base64 image
+
+    Returns:
+        ImageSearchResponse with visually similar destination images
+    """
+    try:
+        validated = None
+        validation_message = None
+
+        # Optional: validate the image is a tourism destination
+        if request.run_validation:
+            try:
+                from .services.image_validator import get_image_validator
+
+                validator = get_image_validator()
+                validation = validator.validate_base64_image(request.image_base64)
+                validated = validation.is_valid
+                validation_message = validation.message
+
+                if not validation.is_valid:
+                    return ImageSearchResponse(
+                        query="image_upload",
+                        results=[],
+                        total_results=0,
+                        validated=False,
+                        validation_message=validation.message,
+                    )
+
+            except Exception as e:
+                logger.warning(f"Image validation skipped: {e}")
+                validated = True
+                validation_message = "Validation skipped due to service error"
+
+        # Perform image-to-image search
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+
+        service = get_image_vectordb_service()
+        results = service.search_by_image_base64(
+            base64_string=request.image_base64,
+            top_k=request.top_k,
+            location_filter=request.location_filter,
+        )
+
+        return ImageSearchResponse(
+            query=request.message or "image_upload",
+            results=[ImageSearchResultResponse(**r) for r in results],
+            total_results=len(results),
+            validated=validated,
+            validation_message=validation_message,
+        )
+
+    except Exception as e:
+        logger.error(f"Image upload search endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/validate",
+    response_model=ImageValidateResponse,
+    tags=["Image Search"],
+    summary="Validate if an image is a Sri Lankan tourism destination",
+    description="""
+    Validates a base64-encoded image using CLIP zero-shot classification
+    against tourism-positive and tourism-negative label sets.
+
+    Returns whether the image is accepted as a tourism destination,
+    along with classification scores.
+
+    Use this endpoint to pre-validate images before uploading for search,
+    or to provide instant feedback in the mobile app camera flow.
+    """
+)
+async def image_validate(request: ImageValidateRequest):
+    """
+    Image validation-only endpoint.
+
+    Args:
+        request: ImageValidateRequest with base64 image
+
+    Returns:
+        ImageValidateResponse with validation result and scores
+    """
+    try:
+        from .services.image_validator import get_image_validator
+
+        validator = get_image_validator()
+        validation = validator.validate_base64_image(request.image_base64)
+
+        return ImageValidateResponse(
+            is_valid=validation.is_valid,
+            message=validation.message,
+            positive_score=round(validation.positive_score, 4),
+            negative_score=round(validation.negative_score, 4),
+            rejection_reason=validation.rejection_reason,
+        )
+
+    except Exception as e:
+        logger.error(f"Image validation endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2537,6 +2736,19 @@ async def health_check():
     except Exception as e:
         components["chromadb"] = f"error: {str(e)}"
         health_monitor.report_failure(ServiceType.CHROMADB, str(e))
+
+    # Image Knowledge (CLIP + ChromaDB image_knowledge collection)
+    try:
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+        img_service = get_image_vectordb_service()
+        img_service._ensure_initialized()
+        img_count = img_service._collection.count() if img_service._collection else 0
+        clip_loaded = img_service._clip_service.is_loaded if img_service._clip_service else False
+        components["image_knowledge"] = f"available ({img_count} images)"
+        components["clip_model"] = "loaded" if clip_loaded else "ready (lazy)"
+    except Exception as e:
+        components["image_knowledge"] = f"not_available: {str(e)[:80]}"
+        components["clip_model"] = "not_loaded"
 
     # Physics Engine
     try:

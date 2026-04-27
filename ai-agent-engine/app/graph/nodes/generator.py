@@ -130,7 +130,67 @@ The user has asked something outside your scope. Respond briefly (2-3 sentences)
 - Immediately suggest a related Sri Lanka topic they might enjoy
 - Use **bold** for the Sri Lanka topic you suggest
 
-Do NOT answer the off-topic question at all — just redirect warmly."""
+Do NOT answer the off-topic question at all — just redirect warmly.""",
+
+    "image_query": """You are Travion 🇱🇰, an expert AI tour guide for Sri Lanka with visual search capabilities. The user is looking for images or has asked about the visual appearance of a destination.
+
+You have been provided with IMAGE SEARCH RESULTS from a CLIP-based visual search engine that matched the user's query against a curated collection of Sri Lankan tourism images.
+
+📸 Response Guidelines:
+- Present the matched images naturally — describe what the user will see at each location
+- For EACH image result, include the image URL using markdown image syntax: ![Location Name](image_url)
+- Highlight the **top match** and explain why it's the best result
+- Add practical tips: best time for photos, lighting conditions, what to bring
+- If multiple locations matched, briefly compare them
+- Use emojis: 📸 photos, 🌅 golden hour, 🏛️ heritage, 🏖️ beach, 🌿 nature, 🐘 wildlife
+- End with a suggestion like "Want me to plan a photography trip here?" or "Should I find more images of this area?"
+
+💡 Image Presentation Format:
+For each image result, use this format:
+📍 **Location Name** (match: X%)
+Description of what the user will see
+![Location Name](image_url)
+💡 Pro tip about photography/visiting
+
+Only use facts from the provided context. Do not invent image URLs or descriptions.""",
+
+    "image_query_location": """You are Travion 🇱🇰, a friendly AI tour guide helping the user explore **{location_name}** with visual search.
+
+The user is looking for images of {location_name} or has uploaded a photo related to this location. You have been provided with IMAGE SEARCH RESULTS from a CLIP-based visual search.
+
+📸 Response Guidelines:
+- Present the matched images of **{location_name}** — describe what each photo shows
+- For EACH image result, include the image URL using markdown: ![{location_name}](image_url)
+- Add photography tips specific to {location_name}: best angles, time of day, viewpoints
+- Use emojis: 📸 🌅 🏛️ 🏖️ 🌿 🐘
+- End with a follow-up like "Want me to suggest the best photo spots at {location_name}?"
+
+Only use facts from the provided context. Do not invent image URLs.""",
+
+    "image_upload": """You are Travion 🇱🇰, an expert AI tour guide for Sri Lanka with visual recognition capabilities.
+
+The user has UPLOADED a photo. You matched it against the Sri Lankan tourism image collection using CLIP visual embeddings. The IMAGE SEARCH RESULTS show the most visually similar destinations.
+
+📸 Response Guidelines:
+- Tell the user what their photo looks like / what destination it matches
+- Present the top matches: "Your photo looks most like **Location Name**! Here's what I found..."
+- For each match, show the reference image: ![Location Name](image_url)
+- Explain what makes the match (architecture, landscape, colours, features)
+- Add practical visit info for the top match: how to get there, best time, entry fees
+- Use emojis: 📸 🔍 🏛️ 🏖️ 🌿 ✨
+- End with "Want to plan a visit to this place?" or "Should I find more similar spots?"
+
+Only use facts from the provided context. Do not invent details.""",
+
+    "image_rejected": """You are Travion 🇱🇰, a friendly AI tour guide for Sri Lanka.
+
+The user uploaded an image that does NOT appear to be a Sri Lankan tourism destination. Respond politely:
+- Acknowledge that you received their image
+- Explain that you specialise in Sri Lankan tourism destinations and the image didn't match
+- Suggest what kinds of images work: photos of temples, beaches, historical sites, nature, wildlife, landscapes in Sri Lanka
+- Offer to help with text-based search instead: "Try asking me to show photos of a specific place!"
+- Keep it brief, warm, and helpful (3-4 sentences)
+- Use 📸 and 😊 emojis"""
 }
 
 
@@ -170,6 +230,22 @@ def build_context_string(state: GraphState) -> str:
     if constraints and isinstance(constraints, dict):
         parts.append("=== CONSTRAINT ANALYSIS ===")
         parts.append(constraints.get("recommendation", ""))
+        parts.append("")
+
+    # Add image search results
+    image_results = state.get("image_search_results", [])
+    if image_results:
+        parts.append("=== IMAGE SEARCH RESULTS ===")
+        for i, img in enumerate(image_results[:5], 1):
+            parts.append(
+                f"\n[Image {i}] {img['location_name']} "
+                f"(similarity: {img['similarity_score']:.3f})"
+            )
+            parts.append(f"  Description: {img['description'][:200]}")
+            if img.get("image_url"):
+                parts.append(f"  Image URL: {img['image_url']}")
+            if img.get("tags"):
+                parts.append(f"  Tags: {img['tags']}")
         parts.append("")
 
     # Add itinerary if generated
@@ -232,6 +308,12 @@ def build_source_attribution(state: GraphState) -> str:
     if weather_data:
         sources.append("🌤️ **Live Weather:** OpenWeatherMap API")
 
+    # Image search results (CLIP visual search)
+    image_results = state.get("image_search_results", [])
+    if image_results:
+        img_locations = list(set(r.get("location_name", "") for r in image_results[:5]))
+        sources.append(f"📸 **Image Search (CLIP):** {', '.join(img_locations)}")
+
     # Hotel / search candidates (MCP search)
     candidates = state.get("search_candidates", [])
     if candidates:
@@ -243,7 +325,12 @@ def build_source_attribution(state: GraphState) -> str:
     return "\n\n---\n📚 **Sources**\n" + "\n".join(sources)
 
 
-def get_system_prompt(intent: Optional[IntentType], target_location: Optional[str] = None) -> str:
+def get_system_prompt(
+    intent: Optional[IntentType],
+    target_location: Optional[str] = None,
+    has_uploaded_image: bool = False,
+    image_rejected: bool = False,
+) -> str:
     """Get appropriate system prompt based on intent and location context."""
     if intent == IntentType.GREETING:
         if target_location:
@@ -251,6 +338,15 @@ def get_system_prompt(intent: Optional[IntentType], target_location: Optional[st
         return SYSTEM_PROMPTS["greeting"]
     elif intent == IntentType.OFF_TOPIC:
         return SYSTEM_PROMPTS["off_topic"]
+    elif intent == IntentType.IMAGE_QUERY or has_uploaded_image:
+        # Image query variants
+        if image_rejected:
+            return SYSTEM_PROMPTS["image_rejected"]
+        if has_uploaded_image:
+            return SYSTEM_PROMPTS["image_upload"]
+        if target_location:
+            return SYSTEM_PROMPTS["image_query_location"].format(location_name=target_location)
+        return SYSTEM_PROMPTS["image_query"]
     elif intent == IntentType.TRIP_PLANNING:
         return SYSTEM_PROMPTS["trip_planner"]
     else:
@@ -288,28 +384,54 @@ async def generator_node(state: GraphState, llm=None) -> GraphState:
     target_location = state.get("target_location")
     correction_instructions = state.get("_correction_instructions")
 
-    logger.info(f"Generator processing intent: {intent.value}, target_location: {target_location}")
+    # Image query flags
+    has_uploaded_image = bool(state.get("uploaded_image_base64"))
+    image_rejected = state.get("uploaded_image_validated") is False
+    has_image_results = bool(state.get("image_search_results"))
+
+    logger.info(
+        f"Generator processing intent: {intent.value}, target_location: {target_location}, "
+        f"has_uploaded_image: {has_uploaded_image}, image_rejected: {image_rejected}, "
+        f"has_image_results: {has_image_results}"
+    )
     if correction_instructions:
         logger.info(f"Generator applying corrections: {correction_instructions[:100]}...")
 
     # Build context from all sources
     context = build_context_string(state)
 
-    # Get appropriate system prompt (with location context if available)
-    system_prompt = get_system_prompt(intent, target_location)
+    # Get appropriate system prompt (with location + image context)
+    system_prompt = get_system_prompt(
+        intent,
+        target_location,
+        has_uploaded_image=has_uploaded_image,
+        image_rejected=image_rejected,
+    )
 
     # Build user message with context
-    if context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC]:
+    if image_rejected:
+        # Short-circuit: image was rejected by validator
+        rejection_msg = state.get("image_validation_message", "The uploaded image doesn't appear to be a Sri Lankan tourism destination.")
+        user_message = f"The user uploaded an image. Validation result: {rejection_msg}\n\nUser message: {query}"
+
+    elif context and intent not in [IntentType.GREETING, IntentType.OFF_TOPIC]:
         # If we have a target location, explicitly mention it in the context
         location_context = f"\nYou are answering questions about: {target_location}\n" if target_location else ""
-        
+
         # Include correction instructions if this is a regeneration
         correction_context = ""
         if correction_instructions:
             correction_context = f"\n\n=== IMPORTANT CORRECTIONS NEEDED ===\n{correction_instructions}\n"
-        
+
+        # Image-specific framing
+        image_framing = ""
+        if has_image_results and has_uploaded_image:
+            image_framing = "\nThe user uploaded a photo. The IMAGE SEARCH RESULTS below show the most visually similar Sri Lankan destinations.\n"
+        elif has_image_results:
+            image_framing = "\nThe user is looking for images. The IMAGE SEARCH RESULTS below were found via CLIP visual search.\n"
+
         user_message = f"""Context Information:
-{location_context}{context}{correction_context}
+{location_context}{image_framing}{context}{correction_context}
 User Question: {query}
 
 Please provide a helpful response based on the context above.{' Address the correction issues mentioned.' if correction_instructions else ''}"""
@@ -409,6 +531,35 @@ def generate_fallback_response(state: GraphState) -> str:
     """
     intent = state.get("intent", IntentType.TOURISM_QUERY)
     target_location = state.get("target_location")
+    image_rejected = state.get("uploaded_image_validated") is False
+    image_results = state.get("image_search_results", [])
+
+    # Handle image rejection
+    if image_rejected:
+        rejection_msg = state.get("image_validation_message", "")
+        return (
+            f"📸 Thanks for sharing that image! Unfortunately, it doesn't appear to be "
+            f"a Sri Lankan tourism destination.\n\n"
+            f"{rejection_msg}\n\n"
+            f"💡 **Try these instead:**\n"
+            f"• Upload a photo of a temple, beach, fortress, or nature spot in Sri Lanka\n"
+            f"• Or ask me to show photos — e.g., *\"Show me photos of Sigiriya\"*\n\n"
+            f"I'm happy to help you explore Sri Lanka visually! 😊"
+        )
+
+    # Handle image query with results
+    if intent == IntentType.IMAGE_QUERY and image_results:
+        parts = ["📸 Here are the best visual matches I found!\n"]
+        for i, img in enumerate(image_results[:5], 1):
+            score_pct = int(img["similarity_score"] * 100)
+            parts.append(f"**{i}. {img['location_name']}** (match: {score_pct}%)")
+            if img.get("description"):
+                parts.append(f"   {img['description'][:150]}")
+            if img.get("image_url"):
+                parts.append(f"   ![{img['location_name']}]({img['image_url']})")
+            parts.append("")
+        parts.append("Want me to tell you more about any of these places? 🌴")
+        return "\n".join(parts)
 
     if intent == IntentType.GREETING:
         if target_location:
