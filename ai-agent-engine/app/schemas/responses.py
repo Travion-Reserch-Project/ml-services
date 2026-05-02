@@ -116,6 +116,17 @@ class ChatResponse(BaseModel):
         metadata: Additional response metadata
         image_results: Image search results from CLIP-based retrieval
         image_validation_message: Validation message for uploaded images
+        thread_id: User-scoped thread id (echoed for resume calls)
+        clarification_question: Structured question when input is ambiguous
+        cultural_tips: Sri Lanka-specific cultural tips for the trip
+        final_itinerary: Map-ready structured itinerary (stops + route_polyline)
+        pending_user_selection: True when graph paused awaiting candidate pick
+        selection_cards: Pre-formatted HITL selection cards for the mobile UI
+        prompt_text: Short header text for the mobile selection prompt
+        weather_interrupt: True when graph paused due to severe weather
+        weather_prompt_message: Human-readable weather warning shown to user
+        weather_prompt_options: Options the user can choose for weather decision
+        step_results: Agent pipeline step results for live progress UI
     """
     query: str
     intent: Optional[str] = None
@@ -126,6 +137,18 @@ class ChatResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     image_results: Optional[List[ImageSearchResultResponse]] = None
     image_validation_message: Optional[str] = None
+    # Planning-mode fields surfaced to mobile via /api/v1/chat
+    thread_id: Optional[str] = None
+    clarification_question: Optional[Dict[str, Any]] = None
+    cultural_tips: Optional[List[Dict[str, Any]]] = None
+    final_itinerary: Optional[Dict[str, Any]] = None
+    pending_user_selection: Optional[bool] = None
+    selection_cards: Optional[List[Dict[str, Any]]] = None
+    prompt_text: Optional[str] = None
+    weather_interrupt: Optional[bool] = None
+    weather_prompt_message: Optional[str] = None
+    weather_prompt_options: Optional[List[Dict[str, str]]] = None
+    step_results: Optional[List[Dict[str, Any]]] = None
 
     class Config:
         json_schema_extra = {

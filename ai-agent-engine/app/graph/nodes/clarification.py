@@ -335,6 +335,27 @@ async def clarification_node(state: GraphState, llm=None) -> GraphState:
     logger.info("Clarification node checking for missing information...")
 
     tour_context = state.get("tour_plan_context")
+    intent_value = state.get("intent")
+    intent_value = getattr(intent_value, "value", intent_value)
+
+    # Direct TRIP_PLANNING from chat (no pre-selected context).
+    # Build a synthetic context from router-extracted entities so the
+    # standard checks (dates, locations) can ask the user for missing info.
+    if not tour_context and intent_value == "trip_planning":
+        target_location = state.get("target_location")
+        target_date = state.get("target_date")
+        synthetic_locations = []
+        if target_location:
+            synthetic_locations.append({"name": target_location})
+        tour_context = {
+            "selected_locations": synthetic_locations,
+            "start_date": target_date if target_date else None,
+            "end_date": target_date if target_date else None,
+            "from_chat": True,
+        }
+        # Stash the synthetic context onto state so downstream nodes see it
+        state = {**state, "tour_plan_context": tour_context}
+
     if not tour_context:
         # No tour plan context — nothing to clarify
         return {
@@ -342,6 +363,33 @@ async def clarification_node(state: GraphState, llm=None) -> GraphState:
             "clarification_needed": False,
             "clarification_question": None,
             "step_results": [{"node": "clarification", "status": "success", "summary": "No tour plan context — skipping", "duration_ms": 0}],
+        }
+
+    # If chat-initiated planning without locations, ask for them first.
+    if tour_context.get("from_chat") and not tour_context.get("selected_locations"):
+        question = ClarificationQuestion(
+            question="Which area of Sri Lanka would you like to explore?",
+            options=[
+                {"label": "Cultural Triangle", "description": "Sigiriya, Dambulla, Polonnaruwa, Anuradhapura — heritage & temples", "recommended": True},
+                {"label": "Hill Country", "description": "Kandy, Nuwara Eliya, Ella — tea plantations, scenic train rides", "recommended": False},
+                {"label": "South Coast", "description": "Galle, Mirissa, Unawatuna — beaches, whale watching, surfing", "recommended": False},
+                {"label": "Mix of regions", "description": "A multi-region itinerary — let me suggest the best route", "recommended": False},
+            ],
+            context="Picking a region helps me build a route with practical travel times and a coherent theme.",
+            type="single_select",
+        )
+        duration_ms = (time.time() - start_time) * 1000
+        return {
+            **state,
+            "clarification_needed": True,
+            "clarification_question": question,
+            "interrupt_reason": "missing_locations",
+            "step_results": [{
+                "node": "clarification",
+                "status": "needs_input",
+                "summary": "Asking user for region/locations",
+                "duration_ms": duration_ms,
+            }],
         }
 
     # Run checks in priority order

@@ -105,7 +105,7 @@ from .schemas.recommendation import (
     ConstraintCheck,
     PreferenceConfidence,
 )
-from .graph import get_agent, invoke_agent, resume_agent_with_selection, resume_agent_with_weather_choice
+from .graph import get_agent, invoke_agent, resume_agent_with_selection, resume_agent_with_weather_choice, stream_agent
 from .graph.nodes.shadow_monitor import get_shadow_monitor
 from .tools import (
     get_crowdcast,
@@ -482,6 +482,21 @@ async def chat(request: ChatRequest):
                 for img in (result.get("image_search_results") or [])
             ] if result.get("image_search_results") else None,
             image_validation_message=result.get("image_validation_message"),
+            # Planning-mode fields — pass through so the mobile chat screen
+            # can render clarification questions, HITL selection cards, the
+            # final tour plan card with map, weather prompts, and live agent
+            # progress without needing a separate /tour-plan endpoint call.
+            thread_id=scoped_thread_id,
+            clarification_question=result.get("clarification_question"),
+            cultural_tips=result.get("cultural_tips") or None,
+            final_itinerary=result.get("final_itinerary"),
+            pending_user_selection=result.get("pending_user_selection"),
+            selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
+            weather_interrupt=result.get("weather_interrupt"),
+            weather_prompt_message=result.get("weather_prompt_message"),
+            weather_prompt_options=result.get("weather_prompt_options"),
+            step_results=result.get("step_results") or None,
         )
 
     except HTTPException:
@@ -489,6 +504,58 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# CHAT STREAMING ENDPOINT (Server-Sent Events)
+# =============================================================================
+
+def _make_sse_event(data: dict) -> str:
+    """Format a JSON dict as a Server-Sent Events frame."""
+    return f"data: {json.dumps(data, default=str)}\n\n"
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/chat/stream",
+    tags=["Chat"],
+    summary="Streaming chat endpoint (Server-Sent Events)",
+    description="""
+    Streaming variant of `/api/v1/chat`.
+
+    Emits one SSE frame per LangGraph node completion (`type: "step"`)
+    and a final frame with the full response payload (`type: "complete"`).
+
+    The mobile app uses this for live agent progress (Crowd → Weather →
+    Routing → Photography → Cultural) during tour plan generation.
+    """,
+)
+async def chat_stream(request: ChatRequest):
+    """Streaming chat endpoint — emits per-node steps + a final complete frame."""
+    scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
+    async def event_generator():
+        try:
+            async for event in stream_agent(
+                query=request.message,
+                thread_id=scoped_thread_id,
+                uploaded_image_base64=request.image_base64,
+            ):
+                # Attach thread_id to every frame so the mobile can build resume URLs
+                event_with_thread = {**event, "thread_id": scoped_thread_id}
+                yield _make_sse_event(event_with_thread)
+        except Exception as e:
+            logger.error(f"Chat stream error: {e}")
+            yield _make_sse_event({"type": "error", "error": str(e), "thread_id": scoped_thread_id})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
 
 
 @app.post(
@@ -607,6 +674,19 @@ async def location_chat(request: LocationChatRequest):
                 for img in (result.get("image_search_results") or [])
             ] if result.get("image_search_results") else None,
             image_validation_message=result.get("image_validation_message"),
+            # Planning fields (also surfaced from the location-chat endpoint
+            # so a location-context chat can transition into planning mode).
+            thread_id=scoped_thread_id,
+            clarification_question=result.get("clarification_question"),
+            cultural_tips=result.get("cultural_tips") or None,
+            final_itinerary=result.get("final_itinerary"),
+            pending_user_selection=result.get("pending_user_selection"),
+            selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
+            weather_interrupt=result.get("weather_interrupt"),
+            weather_prompt_message=result.get("weather_prompt_message"),
+            weather_prompt_options=result.get("weather_prompt_options"),
+            step_results=result.get("step_results") or None,
         )
 
     except HTTPException:
@@ -1439,10 +1519,12 @@ async def submit_selection(request: SelectionRequest):
         or AdvancedSearchResponse for simple search selections.
     """
     try:
-        # The thread_id from the client is already user-scoped (returned by
-        # the generate endpoint).  Do NOT re-scope — that would create a
-        # double-prefixed ID that doesn't match the checkpoint.
+        # Re-apply user-scoping to match how /chat stored the checkpoint
+        # (`{user_id}_{sessionId}`). The mobile client sends the unscoped
+        # sessionId here.
         scoped_thread_id = request.thread_id
+        if request.user_id and not scoped_thread_id.startswith(f"{request.user_id}_"):
+            scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id) or request.thread_id
 
         logger.info(
             f"HITL selection received — thread={scoped_thread_id}, "
@@ -1625,10 +1707,16 @@ async def resume_weather(request: WeatherResumeRequest):
         TourPlanResponse with the re-optimised itinerary
     """
     try:
-        # The thread_id from the client is already user-scoped (returned by
-        # the generate endpoint).  Do NOT re-scope — that would create a
-        # double-prefixed ID that doesn't match the checkpoint.
+        # When the chat endpoint runs, it scopes the thread_id with user_id
+        # (`{user_id}_{sessionId}`).  The mobile client sends the unscoped
+        # sessionId here, so we re-apply the same scoping when user_id is
+        # present so the LangGraph checkpoint lookup succeeds.  If the
+        # thread_id already begins with the user_id, _build_user_thread_id
+        # is idempotent enough — but to be safe we only scope when the id
+        # does not already start with the user_id prefix.
         scoped_thread_id = request.thread_id
+        if request.user_id and not scoped_thread_id.startswith(f"{request.user_id}_"):
+            scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id) or request.thread_id
 
         logger.info(
             f"HITL weather resume — thread={scoped_thread_id}, "
