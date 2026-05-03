@@ -40,6 +40,7 @@ from .advanced_search import (
 )
 from .selection_handler import selection_handler_node
 from .restaurant_selection_handler import restaurant_selection_handler_node
+from .vision_retrieval import vision_retrieval_node, get_image_vectordb_service
 
 __all__ = [
     # Nodes
@@ -56,6 +57,7 @@ __all__ = [
     "advanced_search_node",
     "selection_handler_node",
     "restaurant_selection_handler_node",
+    "vision_retrieval_node",
     # Routing functions
     "route_by_intent",
     "route_after_grading",
@@ -69,4 +71,5 @@ __all__ = [
     "extract_entities",
     "get_vectordb_service",
     "get_shadow_monitor",
+    "get_image_vectordb_service",
 ]

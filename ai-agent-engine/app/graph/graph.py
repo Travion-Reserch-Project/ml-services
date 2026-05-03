@@ -133,6 +133,7 @@ from .nodes import (
     advanced_search_node,
     selection_handler_node,
     restaurant_selection_handler_node,
+    vision_retrieval_node,
     route_by_intent,
     route_after_grading,
     route_after_verification,
@@ -290,6 +291,7 @@ class TravionAgentGraph:
         workflow.add_node("advanced_search", self._advanced_search_wrapper)
         workflow.add_node("selection_handler", self._selection_handler_wrapper)
         workflow.add_node("restaurant_selection_handler", self._restaurant_selection_handler_wrapper)
+        workflow.add_node("vision_retrieve", self._vision_retrieval_wrapper)
         workflow.add_node("verify", self._verifier_wrapper)
 
         # Set entry point
@@ -306,6 +308,21 @@ class TravionAgentGraph:
                 "tour_plan": "retrieve",           # Tour plan → retrieval first
                 "hotel_search": "hotel_search",    # Hotel/restaurant queries → web search
                 "advanced_search": "advanced_search",  # Advanced multi-step search
+                "vision_retrieve": "vision_retrieve",  # Image queries → CLIP search
+            }
+        )
+
+        # Vision Retrieve → Generate OR Tour Plan
+        # When the user uploads an image AND the query has planning keywords
+        # (e.g. "plan a trip around places like this"), the CLIP top-K results
+        # become the selected_locations for tour plan generation.  Otherwise
+        # we take the fast path through the generator.
+        workflow.add_conditional_edges(
+            "vision_retrieve",
+            self._route_after_vision_retrieve,
+            {
+                "tour_plan_generate": "tour_plan_generate",
+                "generate": "generate",
             }
         )
 
@@ -331,7 +348,8 @@ class TravionAgentGraph:
             self._route_after_shadow_monitor,
             {
                 "generate": "generate",
-                "clarification": "clarification"
+                "clarification": "clarification",
+                END: END,
             }
         )
 
@@ -410,6 +428,12 @@ class TravionAgentGraph:
         if state.get("tour_plan_context"):
             return "tour_plan"
 
+        # Check if user uploaded an image → always vision retrieval
+        # Vision retrieve will route onward to tour_plan when planning intent
+        # is detected from the query (image-driven planning).
+        if state.get("uploaded_image_base64"):
+            return "vision_retrieve"
+
         # Check if this is an advanced multi-step search
         if should_trigger_advanced_search(state.get("user_query", "")):
             return "advanced_search"
@@ -418,7 +442,9 @@ class TravionAgentGraph:
         if route_to_hotel_search(state):
             return "hotel_search"
 
-        # Otherwise use standard intent routing
+        # Otherwise use standard intent routing.
+        # TRIP_PLANNING goes through retrieve → grader → shadow_monitor →
+        # clarification → tour_plan_generate (the standard planning pipeline).
         return route_by_intent(state)
 
     def _route_after_advanced_search(self, state: GraphState) -> str:
@@ -446,8 +472,55 @@ class TravionAgentGraph:
         """
         if state.get("weather_interrupt"):
             return END
+        # Tour plan context OR a plain TRIP_PLANNING intent both enter the
+        # clarification flow so the agent can ask for missing locations/dates
+        # before generating a plan.
         if state.get("tour_plan_context"):
             return "clarification"
+        intent = state.get("intent")
+        if intent is not None and getattr(intent, "value", intent) == "trip_planning":
+            return "clarification"
+        return "generate"
+
+    def _route_after_vision_retrieve(self, state: GraphState) -> str:
+        """Route after vision retrieval.
+
+        If the user query mentions trip planning (plan/itinerary/days/trip)
+        AND the CLIP search produced location matches, build a synthetic
+        ``tour_plan_context`` from those locations and route to the tour plan
+        generator.  Otherwise take the standard generator path so the user
+        sees the photo results inline.
+        """
+        import re
+        query = (state.get("user_query") or "").lower()
+        planning_pattern = re.compile(r"\b(plan|itinerary|trip|days?|tour)\b")
+        results = state.get("image_search_results") or []
+        if planning_pattern.search(query) and results:
+            # Build synthetic locations from the top CLIP matches
+            seen = set()
+            synthetic_locations = []
+            for r in results[:5]:
+                name = r.get("location_name")
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                coords = r.get("coordinates") or {}
+                loc = {"name": name}
+                if coords.get("lat") and coords.get("lng"):
+                    loc["latitude"] = coords["lat"]
+                    loc["longitude"] = coords["lng"]
+                synthetic_locations.append(loc)
+
+            if synthetic_locations:
+                # Mutate state in-place via the checkpointer-friendly pattern
+                tour_plan_context = state.get("tour_plan_context") or {}
+                tour_plan_context = {
+                    **tour_plan_context,
+                    "selected_locations": synthetic_locations,
+                    "from_image": True,
+                }
+                state["tour_plan_context"] = tour_plan_context
+                return "tour_plan_generate"
         return "generate"
 
     def _route_after_clarification(self, state: GraphState) -> str:
@@ -519,6 +592,10 @@ class TravionAgentGraph:
         """Wrapper for restaurant HITL selection handler."""
         return await restaurant_selection_handler_node(state, self.llm)
 
+    async def _vision_retrieval_wrapper(self, state: GraphState) -> GraphState:
+        """Wrapper for vision retrieval node (CLIP image search)."""
+        return await vision_retrieval_node(state)
+
     async def _verifier_wrapper(self, state: GraphState) -> GraphState:
         """Wrapper for verifier node with LLM injection."""
         return await verifier_node(state, self.llm)
@@ -530,7 +607,8 @@ class TravionAgentGraph:
         target_location: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         tour_plan_context: Optional[Dict[str, Any]] = None,
-        user_preferences: Optional[Dict[str, Any]] = None
+        user_preferences: Optional[Dict[str, Any]] = None,
+        uploaded_image_base64: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute the agent workflow for a user query.
@@ -542,6 +620,7 @@ class TravionAgentGraph:
             conversation_history: Optional list of previous messages for context
             tour_plan_context: Optional context for tour plan generation
             user_preferences: Optional user preference profile for personalization
+            uploaded_image_base64: Optional base64-encoded image for CLIP visual search
 
         Returns:
             Dict with final state including response, step results, and cultural tips
@@ -559,6 +638,7 @@ class TravionAgentGraph:
             conversation_history=conversation_history,
             tour_plan_context=tour_plan_context,
             user_preferences=user_preferences,
+            uploaded_image_base64=uploaded_image_base64,
         )
 
         # Configure thread with tracing metadata
@@ -629,6 +709,11 @@ class TravionAgentGraph:
                 "weather_interrupt": final_state.get("weather_interrupt", False),
                 "weather_prompt_message": final_state.get("weather_prompt_message"),
                 "weather_prompt_options": final_state.get("weather_prompt_options"),
+                # Vision / Image Search results
+                "image_search_results": final_state.get("image_search_results", []),
+                "has_image_query": final_state.get("has_image_query", False),
+                "uploaded_image_validated": final_state.get("uploaded_image_validated"),
+                "image_validation_message": final_state.get("image_validation_message"),
             }
 
         except Exception as e:
@@ -748,13 +833,18 @@ class TravionAgentGraph:
         config = {"configurable": {"thread_id": thread_id}}
 
         try:
-            # LangGraph 1.0.x resume pattern: update_state then ainvoke(None)
+            # LangGraph 1.0.x resume pattern: update_state (as the shadow_monitor
+            # node — that's where we paused via END) then ainvoke(None).
+            # Without `as_node`, multiple branches in the graph cause
+            # "Ambiguous update".  Without clearing the weather_interrupt as
+            # *that* node, the downstream router would try to re-run from
+            # entry and lose the original `user_query`.
             update = {
                 "user_weather_choice": user_choice,
                 "weather_interrupt": False,       # clear the interrupt flag
                 "interrupt_reason": None,
             }
-            await self.graph.aupdate_state(config, update)
+            await self.graph.aupdate_state(config, update, as_node="shadow_monitor")
             final_state = await self.graph.ainvoke(None, config)
 
             return {
@@ -783,31 +873,40 @@ class TravionAgentGraph:
         query: str,
         thread_id: Optional[str] = None,
         target_location: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        tour_plan_context: Optional[Dict[str, Any]] = None,
+        user_preferences: Optional[Dict[str, Any]] = None,
+        uploaded_image_base64: Optional[str] = None,
     ):
         """
         Stream the agent execution step by step.
 
-        This method yields intermediate states as the graph executes,
-        enabling real-time visibility into the reasoning process.
+        Yields one event per node completion (status: 'step') and a final
+        event with the full result snapshot (status: 'complete').
 
         Args:
             query: User's input message
             thread_id: Optional thread ID
             target_location: Optional location name to focus retrieval on
             conversation_history: Optional list of previous messages for context
+            tour_plan_context: Optional pre-selected tour plan context
+            user_preferences: Optional user preference profile
+            uploaded_image_base64: Optional base64 image for CLIP/planning
 
         Yields:
-            Dict with node name and current state
+            Dict with type='step' or type='complete' and event payload
         """
         if not self.graph:
-            yield {"error": "Graph not initialized"}
+            yield {"type": "error", "error": "Graph not initialized"}
             return
 
         initial_state = create_initial_state(
-            query, 
+            query,
             target_location=target_location,
-            conversation_history=conversation_history
+            conversation_history=conversation_history,
+            tour_plan_context=tour_plan_context,
+            user_preferences=user_preferences,
+            uploaded_image_base64=uploaded_image_base64,
         )
         config = {
             "configurable": {
@@ -815,19 +914,62 @@ class TravionAgentGraph:
             }
         }
 
+        last_state: Dict[str, Any] = {}
         try:
             async for event in self.graph.astream(initial_state, config):
                 for node_name, node_state in event.items():
+                    last_state = node_state
+                    # Surface only the small step_results entry the node added,
+                    # not the whole state, to keep the SSE frame tiny.
+                    step_entry = None
+                    for sr in (node_state.get("step_results") or []):
+                        if sr.get("node") == node_name or step_entry is None:
+                            step_entry = sr
                     yield {
+                        "type": "step",
                         "node": node_name,
-                        "state": {
-                            k: v for k, v in node_state.items()
-                            if k not in ["messages"]  # Exclude large fields
-                        }
+                        "step": step_entry or {
+                            "node": node_name,
+                            "status": "success",
+                            "summary": "",
+                            "duration_ms": 0,
+                        },
                     }
+
+            # Emit a final complete event with the full result snapshot
+            yield {
+                "type": "complete",
+                "result": {
+                    "query": query,
+                    "intent": last_state.get("intent").value if last_state.get("intent") else None,
+                    "final_response": last_state.get("final_response") or last_state.get("generated_response"),
+                    "itinerary": last_state.get("itinerary"),
+                    "constraint_violations": last_state.get("constraint_violations"),
+                    "shadow_monitor_logs": last_state.get("shadow_monitor_logs"),
+                    "reasoning_loops": last_state.get("reasoning_loops", 0),
+                    "documents_retrieved": len(last_state.get("retrieved_documents", [])),
+                    "web_search_used": len(last_state.get("web_search_results", [])) > 0,
+                    "step_results": last_state.get("step_results", []),
+                    "clarification_question": last_state.get("clarification_question"),
+                    "cultural_tips": last_state.get("cultural_tips", []),
+                    "final_itinerary": last_state.get("final_itinerary"),
+                    "weather_data": last_state.get("weather_data"),
+                    "search_candidates": last_state.get("search_candidates", []),
+                    "pending_user_selection": last_state.get("pending_user_selection", False),
+                    "selection_cards": last_state.get("selection_cards"),
+                    "prompt_text": last_state.get("prompt_text"),
+                    "weather_interrupt": last_state.get("weather_interrupt", False),
+                    "weather_prompt_message": last_state.get("weather_prompt_message"),
+                    "weather_prompt_options": last_state.get("weather_prompt_options"),
+                    "image_search_results": last_state.get("image_search_results", []),
+                    "has_image_query": last_state.get("has_image_query", False),
+                    "image_validation_message": last_state.get("image_validation_message"),
+                },
+            }
 
         except Exception as e:
             logger.error(f"Stream failed: {e}")
+            yield {"type": "error", "error": str(e)}
             yield {"error": str(e)}
 
     def get_graph_visualization(self) -> str:
@@ -890,7 +1032,8 @@ async def invoke_agent(
     target_location: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     tour_plan_context: Optional[Dict[str, Any]] = None,
-    user_preferences: Optional[Dict[str, Any]] = None
+    user_preferences: Optional[Dict[str, Any]] = None,
+    uploaded_image_base64: Optional[str] = None,
 ) -> Dict:
     """
     Convenience function to invoke the agent.
@@ -902,6 +1045,7 @@ async def invoke_agent(
         conversation_history: Optional list of previous messages for context
         tour_plan_context: Optional context for tour plan generation
         user_preferences: Optional user preference profile for personalization
+        uploaded_image_base64: Optional base64-encoded image for CLIP visual search
 
     Returns:
         Dict with agent response including step_results, cultural_tips, clarification
@@ -914,7 +1058,31 @@ async def invoke_agent(
         conversation_history=conversation_history,
         tour_plan_context=tour_plan_context,
         user_preferences=user_preferences,
+        uploaded_image_base64=uploaded_image_base64,
     )
+
+
+async def stream_agent(
+    query: str,
+    thread_id: Optional[str] = None,
+    target_location: Optional[str] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    tour_plan_context: Optional[Dict[str, Any]] = None,
+    user_preferences: Optional[Dict[str, Any]] = None,
+    uploaded_image_base64: Optional[str] = None,
+):
+    """Async generator helper for streaming the agent's reasoning steps."""
+    agent = get_agent()
+    async for event in agent.stream(
+        query,
+        thread_id=thread_id,
+        target_location=target_location,
+        conversation_history=conversation_history,
+        tour_plan_context=tour_plan_context,
+        user_preferences=user_preferences,
+        uploaded_image_base64=uploaded_image_base64,
+    ):
+        yield event
 
 
 async def resume_agent_with_selection(

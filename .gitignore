@@ -72,3 +72,11 @@ mlartifacts/
 .dvc/cache/
 .dvc/tmp/
 *.csv.dvc
+
+# Images
+**/*.jpg
+**/*.jpeg
+**/*.png
+**/*.gif
+**/*.webp
+**/*.bmp
