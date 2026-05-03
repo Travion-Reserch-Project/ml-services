@@ -443,11 +443,24 @@ async def chat(request: ChatRequest):
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
+        # When the graph ends with a clarification (no final_response was
+        # generated yet) or any other early-exit, surface a friendly default
+        # so ChatResponse.response (a required string) validates.
+        clarification_q = result.get("clarification_question") or {}
+        default_response = "I'd love to help — but I need a bit more info first."
+        if isinstance(clarification_q, dict) and clarification_q.get("question"):
+            default_response = clarification_q["question"]
+        final_text = (
+            result.get("final_response")
+            or result.get("generated_response")
+            or default_response
+        )
+
         # Build response
         return ChatResponse(
             query=result["query"],
             intent=result.get("intent"),
-            response=result.get("final_response", "I couldn't generate a response."),
+            response=final_text,
             itinerary=[
                 ItinerarySlotResponse(**slot)
                 for slot in (result.get("itinerary") or [])
@@ -634,11 +647,23 @@ async def location_chat(request: LocationChatRequest):
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
+        # Same defensive default as /chat — make sure response is non-None
+        # for clarification short-circuits.
+        clarification_q = result.get("clarification_question") or {}
+        default_response = "I'd love to help — but I need a bit more info first."
+        if isinstance(clarification_q, dict) and clarification_q.get("question"):
+            default_response = clarification_q["question"]
+        final_text = (
+            result.get("final_response")
+            or result.get("generated_response")
+            or default_response
+        )
+
         # Build response
         return ChatResponse(
             query=result["query"],
             intent=result.get("intent"),
-            response=result.get("final_response", "I couldn't generate a response."),
+            response=final_text,
             itinerary=[
                 ItinerarySlotResponse(**slot)
                 for slot in (result.get("itinerary") or [])
