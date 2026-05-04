@@ -4,7 +4,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 import os
 import torch
@@ -129,8 +129,7 @@ class WeatherFeatures(BaseModel):
     Temperature_C: float
     Humidity_pct: float = Field(..., alias="Humidity_%")
 
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PredictRequest(BaseModel):
@@ -191,7 +190,7 @@ def predict_weather_risk(request: PredictRequest):
         raise HTTPException(status_code=503, detail="Weather risk model not loaded")
 
     try:
-        service = get_weather_service()
+        service = weather_service
 
         if service is None:
             return {"success": False, "error": "Weather service unavailable"}
@@ -204,6 +203,7 @@ def predict_weather_risk(request: PredictRequest):
             "location": request.user_location
         }
     except Exception as e:
+        logger.error(f"❌ Prediction error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -216,7 +216,7 @@ def batch_predict_weather_risk(request: BatchPredictRequest):
         raise HTTPException(status_code=503, detail="Weather risk model not loaded")
 
     try:
-        items = [f.dict() for f in request.features_list]
+        items = [f.model_dump() for f in request.features_list]
         results = weather_service.predict_batch(items)
         return {
             "success": True,
@@ -224,6 +224,7 @@ def batch_predict_weather_risk(request: BatchPredictRequest):
             "count": len(results)
         }
     except Exception as e:
+        logger.error(f"❌ Batch prediction error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build to reduce image size
 # Stage 1: Build dependencies
 FROM python:3.9-slim AS builder
@@ -12,17 +14,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies in separate layers for better caching
-RUN pip install --upgrade pip
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --upgrade pip
 
 # Install PyTorch CPU separately (cached layer)
-RUN pip install --no-cache-dir --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --user torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Install other dependencies (only rebuilds if requirements.txt changes)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --user -r requirements.txt
 
 # Download spaCy model
-RUN python -m spacy download en_core_web_sm
+RUN --mount=type=cache,target=/root/.cache/pip \
+  python -m spacy download en_core_web_sm
 
 # Stage 2: Runtime image (much smaller, no models included)
 FROM python:3.9-slim
@@ -41,15 +47,14 @@ RUN useradd -m -u 1001 mluser
 COPY --from=builder /root/.local /home/mluser/.local
 
 # Copy application code
-COPY app.py .
-COPY routes.py .
-COPY download_model.py .
-COPY utils/ utils/
+COPY app/ app/
 COPY data/ data/
 COPY requirements.txt .
+COPY app.py .
+COPY routes.py .
 
-# Create model directory (model will be downloaded at runtime)
-RUN mkdir -p model
+# Create model directories expected by legacy and current loaders
+RUN mkdir -p model ml-models
 
 # Change ownership to mluser
 RUN chown -R mluser:mluser /app /home/mluser/.local
@@ -74,13 +79,9 @@ USER mluser
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8001/api/health || exit 1
+  CMD curl -f http://localhost:8001/api/transport/health || exit 1
 
-# Startup script to handle model downloading and app start
+# Startup script to handle app startup
 CMD ["sh", "-c", "echo 'Starting Transport Service...'; \
-  if [ ! -f model/transport_model.pkl ]; then \
-    echo 'Downloading models...'; \
-    python download_model.py || echo 'Warning: Model download failed, continuing...'; \
-  fi; \
   echo 'Starting uvicorn...'; \
-  uvicorn app:app --host 0.0.0.0 --port 8001 --workers 4"]
+  uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2"]

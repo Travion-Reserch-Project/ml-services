@@ -15,6 +15,7 @@ from .graph import (
     invoke_agent,
     resume_agent_with_selection,
     resume_agent_with_weather_choice,
+    stream_agent,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "invoke_agent",
     "resume_agent_with_selection",
     "resume_agent_with_weather_choice",
+    "stream_agent",
 ]

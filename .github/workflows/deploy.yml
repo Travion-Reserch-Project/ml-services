@@ -6,7 +6,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: travion-ml-service
   DAGSHUB_REPO_OWNER: iamsahan
   DAGSHUB_REPO_NAME: ml-services
   MONGODB_DB_NAME: transport_service
@@ -69,9 +68,9 @@ jobs:
           python -c "from fastapi import FastAPI; print('✓ FastAPI available')"
           python -c "from pydantic import BaseModel; print('✓ Pydantic available')"
 
-  # Job 2: Build and push Docker image
+  # Job 2: Build and push all service Docker images
   build-and-push:
-    name: Build & Push Docker Image
+    name: Build & Push Service Images
     needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
@@ -80,8 +79,11 @@ jobs:
       packages: write
 
     outputs:
-      image-tag: ${{ steps.image-output.outputs.tag }}
-      image-digest: ${{ steps.build.outputs.digest }}
+      ai-agent-engine-image: ${{ steps.image-output.outputs.ai_agent_engine_image }}
+      mcp-google-maps-image: ${{ steps.image-output.outputs.mcp_google_maps_image }}
+      safety-service-image: ${{ steps.image-output.outputs.safety_service_image }}
+      transport-service-image: ${{ steps.image-output.outputs.transport_service_image }}
+      weather-service-image: ${{ steps.image-output.outputs.weather_service_image }}
       branch: ${{ steps.owner.outputs.branch }}
 
     steps:
@@ -123,49 +125,62 @@ jobs:
           echo "🔍 Lowercase owner: ${{ steps.owner.outputs.owner }}"
           echo "🔍 Branch: ${{ github.ref_name }}"
           echo "🔍 Actor: ${{ github.actor }}"
-          echo "🔍 Target image: ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}"
+          echo "🔍 Target images will be pushed under: ghcr.io/${{ steps.owner.outputs.owner }}"
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=${{ steps.owner.outputs.branch }}
-            type=sha,prefix=${{ steps.owner.outputs.branch }}-
+      - name: Build and push all service images
+        run: |
+          set -euo pipefail
 
-      - name: Build and push Docker image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: ./transport-service
-          file: ./transport-service/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Use GitHub Actions cache for layers
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Speed optimizations
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-          platforms: linux/amd64
-          provenance: false
-          # Compress layers during push
-          outputs: type=image,compression=estargz,oci-mediatypes=true,push=true
+          OWNER="${{ steps.owner.outputs.owner }}"
+          BRANCH_TAG="${{ steps.owner.outputs.branch }}"
+          SHA_TAG="${{ github.sha }}"
+
+          build_service() {
+            local service="$1"
+            local context="./$service"
+            local dockerfile="./$service/Dockerfile"
+            local image_base="${{ env.REGISTRY }}/${OWNER}/${service}"
+
+            echo "🚀 Building ${service}"
+            docker buildx build \
+              --platform linux/amd64 \
+              --provenance=false \
+              --cache-from "type=gha,scope=${service}" \
+              --cache-to "type=gha,mode=max,scope=${service}" \
+              --tag "${image_base}:${BRANCH_TAG}" \
+              --tag "${image_base}:latest" \
+              --tag "${image_base}:sha-${SHA_TAG}" \
+              --file "${dockerfile}" \
+              --push \
+              "${context}"
+          }
+
+          build_service "ai-agent-engine"
+          build_service "mcp-google-maps"
+          build_service "safety-service"
+          build_service "transport-service"
+          build_service "weather-service"
 
       - name: Output image tag for later jobs
         id: image-output
         run: |
-          echo "tag=ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.owner.outputs.branch }}" >> $GITHUB_OUTPUT
+          OWNER="${{ steps.owner.outputs.owner }}"
+          BRANCH_TAG="${{ steps.owner.outputs.branch }}"
 
-      - name: Image built successfully
+          echo "ai_agent_engine_image=ghcr.io/${OWNER}/ai-agent-engine:${BRANCH_TAG}" >> $GITHUB_OUTPUT
+          echo "mcp_google_maps_image=ghcr.io/${OWNER}/mcp-google-maps:${BRANCH_TAG}" >> $GITHUB_OUTPUT
+          echo "safety_service_image=ghcr.io/${OWNER}/safety-service:${BRANCH_TAG}" >> $GITHUB_OUTPUT
+          echo "transport_service_image=ghcr.io/${OWNER}/transport-service:${BRANCH_TAG}" >> $GITHUB_OUTPUT
+          echo "weather_service_image=ghcr.io/${OWNER}/weather-service:${BRANCH_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Images built successfully
         run: |
-          echo "✅ Image built and pushed to GHCR"
-          echo "📦 Tags: ${{ steps.meta.outputs.tags }}"
-          echo "🔗 Image: ghcr.io/${{ steps.owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.owner.outputs.branch }}"
+          echo "✅ All service images built and pushed to GHCR"
+          echo "🔗 ai-agent-engine: ${{ steps.image-output.outputs.ai_agent_engine_image }}"
+          echo "🔗 mcp-google-maps: ${{ steps.image-output.outputs.mcp_google_maps_image }}"
+          echo "🔗 safety-service: ${{ steps.image-output.outputs.safety_service_image }}"
+          echo "🔗 transport-service: ${{ steps.image-output.outputs.transport_service_image }}"
+          echo "🔗 weather-service: ${{ steps.image-output.outputs.weather_service_image }}"
 
   # Job 3: Security scanning (temporarily disabled for speed optimization)
   # security-scan:
@@ -250,7 +265,19 @@ jobs:
               "service": "ml-service",
               "branch": "${{ github.ref_name }}",
               "sha": "${{ github.sha }}",
-              "image": "${{ needs.build-and-push.outputs.image-tag }}",
+              "image": "${{ needs.build-and-push.outputs.transport-service-image }}",
+              "ai_agent_engine_image": "${{ needs.build-and-push.outputs.ai-agent-engine-image }}",
+              "mcp_google_maps_image": "${{ needs.build-and-push.outputs.mcp-google-maps-image }}",
+              "safety_service_image": "${{ needs.build-and-push.outputs.safety-service-image }}",
+              "transport_service_image": "${{ needs.build-and-push.outputs.transport-service-image }}",
+              "weather_service_image": "${{ needs.build-and-push.outputs.weather-service-image }}",
+              "images": {
+                "ai_agent_engine": "${{ needs.build-and-push.outputs.ai-agent-engine-image }}",
+                "mcp_google_maps": "${{ needs.build-and-push.outputs.mcp-google-maps-image }}",
+                "safety_service": "${{ needs.build-and-push.outputs.safety-service-image }}",
+                "transport_service": "${{ needs.build-and-push.outputs.transport-service-image }}",
+                "weather_service": "${{ needs.build-and-push.outputs.weather-service-image }}"
+              },
               "triggered_by": "${{ github.actor }}",
               "mongodb": {
                 "uri": "${{ secrets.MONGODB_URI }}",

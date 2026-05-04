@@ -76,6 +76,13 @@ from .schemas import (
     CalculationMetadata,
     SolarPositionResponse,
     PhysicsGoldenHourResponse,
+    # Vision / Image Search
+    ImageSearchResultResponse,
+    ImageSearchResponse,
+    ImageValidateResponse,
+    ImageSearchRequest,
+    ImageUploadSearchRequest,
+    ImageValidateRequest,
     # Hotel/Restaurant search
     HotelSearchResultResponse,
     HotelSearchResponse,
@@ -98,7 +105,7 @@ from .schemas.recommendation import (
     ConstraintCheck,
     PreferenceConfidence,
 )
-from .graph import get_agent, invoke_agent, resume_agent_with_selection, resume_agent_with_weather_choice
+from .graph import get_agent, invoke_agent, resume_agent_with_selection, resume_agent_with_weather_choice, stream_agent
 from .graph.nodes.shadow_monitor import get_shadow_monitor
 from .tools import (
     get_crowdcast,
@@ -362,6 +369,36 @@ def _build_user_thread_id(user_id: Optional[str], thread_id: Optional[str]) -> O
 
 
 # =============================================================================
+# SOURCE EXTRACTION HELPER
+# =============================================================================
+
+def _extract_sources(result: dict) -> dict:
+    """
+    Extract source attribution data from the graph result state.
+
+    Returns a dict with:
+      - source_urls: list of {title, url} from web/MCP search results
+      - kb_sources: list of location names from the knowledge base docs used
+    """
+    # Web / MCP search source links
+    source_urls = []
+    for r in (result.get("web_search_results") or []):
+        title = r.get("title", "Source")
+        url = r.get("url", "")
+        if url:
+            source_urls.append({"title": title, "url": url})
+
+    # Knowledge base document locations
+    kb_sources = []
+    for doc in (result.get("retrieved_documents") or []):
+        loc = (doc.get("metadata") or {}).get("location", "")
+        if loc and loc not in kb_sources:
+            kb_sources.append(loc)
+
+    return {"source_urls": source_urls, "kb_sources": kb_sources}
+
+
+# =============================================================================
 # MAIN CHAT ENDPOINT
 # =============================================================================
 
@@ -398,18 +435,32 @@ async def chat(request: ChatRequest):
         # Invoke the agent
         result = await invoke_agent(
             query=request.message,
-            thread_id=scoped_thread_id
+            thread_id=scoped_thread_id,
+            uploaded_image_base64=request.image_base64,
         )
 
         # Check for errors
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
+        # When the graph ends with a clarification (no final_response was
+        # generated yet) or any other early-exit, surface a friendly default
+        # so ChatResponse.response (a required string) validates.
+        clarification_q = result.get("clarification_question") or {}
+        default_response = "I'd love to help — but I need a bit more info first."
+        if isinstance(clarification_q, dict) and clarification_q.get("question"):
+            default_response = clarification_q["question"]
+        final_text = (
+            result.get("final_response")
+            or result.get("generated_response")
+            or default_response
+        )
+
         # Build response
         return ChatResponse(
             query=result["query"],
             intent=result.get("intent"),
-            response=result.get("final_response", "I couldn't generate a response."),
+            response=final_text,
             itinerary=[
                 ItinerarySlotResponse(**slot)
                 for slot in (result.get("itinerary") or [])
@@ -435,8 +486,30 @@ async def chat(request: ChatRequest):
             metadata={
                 "reasoning_loops": result.get("reasoning_loops", 0),
                 "documents_retrieved": result.get("documents_retrieved", 0),
-                "web_search_used": result.get("web_search_used", False)
-            }
+                "web_search_used": result.get("web_search_used", False),
+                "has_image_query": result.get("has_image_query", False),
+                **_extract_sources(result),
+            },
+            image_results=[
+                ImageSearchResultResponse(**img)
+                for img in (result.get("image_search_results") or [])
+            ] if result.get("image_search_results") else None,
+            image_validation_message=result.get("image_validation_message"),
+            # Planning-mode fields — pass through so the mobile chat screen
+            # can render clarification questions, HITL selection cards, the
+            # final tour plan card with map, weather prompts, and live agent
+            # progress without needing a separate /tour-plan endpoint call.
+            thread_id=scoped_thread_id,
+            clarification_question=result.get("clarification_question"),
+            cultural_tips=result.get("cultural_tips") or None,
+            final_itinerary=result.get("final_itinerary"),
+            pending_user_selection=result.get("pending_user_selection"),
+            selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
+            weather_interrupt=result.get("weather_interrupt"),
+            weather_prompt_message=result.get("weather_prompt_message"),
+            weather_prompt_options=result.get("weather_prompt_options"),
+            step_results=result.get("step_results") or None,
         )
 
     except HTTPException:
@@ -444,6 +517,58 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# CHAT STREAMING ENDPOINT (Server-Sent Events)
+# =============================================================================
+
+def _make_sse_event(data: dict) -> str:
+    """Format a JSON dict as a Server-Sent Events frame."""
+    return f"data: {json.dumps(data, default=str)}\n\n"
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/chat/stream",
+    tags=["Chat"],
+    summary="Streaming chat endpoint (Server-Sent Events)",
+    description="""
+    Streaming variant of `/api/v1/chat`.
+
+    Emits one SSE frame per LangGraph node completion (`type: "step"`)
+    and a final frame with the full response payload (`type: "complete"`).
+
+    The mobile app uses this for live agent progress (Crowd → Weather →
+    Routing → Photography → Cultural) during tour plan generation.
+    """,
+)
+async def chat_stream(request: ChatRequest):
+    """Streaming chat endpoint — emits per-node steps + a final complete frame."""
+    scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id)
+
+    async def event_generator():
+        try:
+            async for event in stream_agent(
+                query=request.message,
+                thread_id=scoped_thread_id,
+                uploaded_image_base64=request.image_base64,
+            ):
+                # Attach thread_id to every frame so the mobile can build resume URLs
+                event_with_thread = {**event, "thread_id": scoped_thread_id}
+                yield _make_sse_event(event_with_thread)
+        except Exception as e:
+            logger.error(f"Chat stream error: {e}")
+            yield _make_sse_event({"type": "error", "error": str(e), "thread_id": scoped_thread_id})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
 
 
 @app.post(
@@ -514,18 +639,31 @@ async def location_chat(request: LocationChatRequest):
             query=enriched_query,
             thread_id=scoped_thread_id,
             target_location=request.location_name,
-            conversation_history=conversation_history
+            conversation_history=conversation_history,
+            uploaded_image_base64=request.image_base64,
         )
 
         # Check for errors
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
+        # Same defensive default as /chat — make sure response is non-None
+        # for clarification short-circuits.
+        clarification_q = result.get("clarification_question") or {}
+        default_response = "I'd love to help — but I need a bit more info first."
+        if isinstance(clarification_q, dict) and clarification_q.get("question"):
+            default_response = clarification_q["question"]
+        final_text = (
+            result.get("final_response")
+            or result.get("generated_response")
+            or default_response
+        )
+
         # Build response
         return ChatResponse(
             query=result["query"],
             intent=result.get("intent"),
-            response=result.get("final_response", "I couldn't generate a response."),
+            response=final_text,
             itinerary=[
                 ItinerarySlotResponse(**slot)
                 for slot in (result.get("itinerary") or [])
@@ -552,14 +690,212 @@ async def location_chat(request: LocationChatRequest):
                 "reasoning_loops": result.get("reasoning_loops", 0),
                 "documents_retrieved": result.get("documents_retrieved", 0),
                 "web_search_used": result.get("web_search_used", False),
-                "target_location": request.location_name
-            }
+                "target_location": request.location_name,
+                "has_image_query": result.get("has_image_query", False),
+                **_extract_sources(result),
+            },
+            image_results=[
+                ImageSearchResultResponse(**img)
+                for img in (result.get("image_search_results") or [])
+            ] if result.get("image_search_results") else None,
+            image_validation_message=result.get("image_validation_message"),
+            # Planning fields (also surfaced from the location-chat endpoint
+            # so a location-context chat can transition into planning mode).
+            thread_id=scoped_thread_id,
+            clarification_question=result.get("clarification_question"),
+            cultural_tips=result.get("cultural_tips") or None,
+            final_itinerary=result.get("final_itinerary"),
+            pending_user_selection=result.get("pending_user_selection"),
+            selection_cards=result.get("selection_cards"),
+            prompt_text=result.get("prompt_text"),
+            weather_interrupt=result.get("weather_interrupt"),
+            weather_prompt_message=result.get("weather_prompt_message"),
+            weather_prompt_options=result.get("weather_prompt_options"),
+            step_results=result.get("step_results") or None,
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Location chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# IMAGE SEARCH & VALIDATION ENDPOINTS
+# =============================================================================
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/search",
+    response_model=ImageSearchResponse,
+    tags=["Image Search"],
+    summary="Text-to-image search using CLIP embeddings",
+    description="""
+    Search the image knowledge base using a natural language text query.
+
+    The query is encoded with CLIP's text encoder and compared against
+    pre-computed CLIP image embeddings in the `image_knowledge` ChromaDB
+    collection (512-dim cosine similarity).
+
+    Examples:
+    - "sunset at Sigiriya Rock" → finds sunset photos of Sigiriya
+    - "beautiful tropical beach with clear water" → finds beach photos
+    - "ancient temple with Buddha statues" → finds temple photos
+
+    Optionally filter by location name for location-scoped searches.
+    """
+)
+async def image_search(request: ImageSearchRequest):
+    """
+    Text-to-image search endpoint.
+
+    Args:
+        request: ImageSearchRequest with text query
+
+    Returns:
+        ImageSearchResponse with matched images sorted by similarity
+    """
+    try:
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+
+        service = get_image_vectordb_service()
+        results = service.search_by_text(
+            query=request.query,
+            top_k=request.top_k,
+            location_filter=request.location_filter,
+        )
+
+        return ImageSearchResponse(
+            query=request.query,
+            results=[ImageSearchResultResponse(**r) for r in results],
+            total_results=len(results),
+        )
+
+    except Exception as e:
+        logger.error(f"Image search endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/search/upload",
+    response_model=ImageSearchResponse,
+    tags=["Image Search"],
+    summary="Image-to-image search using uploaded photo",
+    description="""
+    Upload a base64-encoded image to find visually similar Sri Lankan
+    tourism destinations.
+
+    The image is encoded with CLIP's image encoder and compared against
+    the image_knowledge collection. Optionally validates the image is
+    a tourism destination before searching.
+
+    Supported formats: JPEG, PNG, WebP.
+    Max size: 10 MB (configurable via IMAGE_UPLOAD_MAX_SIZE_MB).
+    """
+)
+async def image_upload_search(request: ImageUploadSearchRequest):
+    """
+    Image-to-image search endpoint.
+
+    Args:
+        request: ImageUploadSearchRequest with base64 image
+
+    Returns:
+        ImageSearchResponse with visually similar destination images
+    """
+    try:
+        validated = None
+        validation_message = None
+
+        # Optional: validate the image is a tourism destination
+        if request.run_validation:
+            try:
+                from .services.image_validator import get_image_validator
+
+                validator = get_image_validator()
+                validation = validator.validate_base64_image(request.image_base64)
+                validated = validation.is_valid
+                validation_message = validation.message
+
+                if not validation.is_valid:
+                    return ImageSearchResponse(
+                        query="image_upload",
+                        results=[],
+                        total_results=0,
+                        validated=False,
+                        validation_message=validation.message,
+                    )
+
+            except Exception as e:
+                logger.warning(f"Image validation skipped: {e}")
+                validated = True
+                validation_message = "Validation skipped due to service error"
+
+        # Perform image-to-image search
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+
+        service = get_image_vectordb_service()
+        results = service.search_by_image_base64(
+            base64_string=request.image_base64,
+            top_k=request.top_k,
+            location_filter=request.location_filter,
+        )
+
+        return ImageSearchResponse(
+            query=request.message or "image_upload",
+            results=[ImageSearchResultResponse(**r) for r in results],
+            total_results=len(results),
+            validated=validated,
+            validation_message=validation_message,
+        )
+
+    except Exception as e:
+        logger.error(f"Image upload search endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    f"{settings.API_V1_PREFIX}/images/validate",
+    response_model=ImageValidateResponse,
+    tags=["Image Search"],
+    summary="Validate if an image is a Sri Lankan tourism destination",
+    description="""
+    Validates a base64-encoded image using CLIP zero-shot classification
+    against tourism-positive and tourism-negative label sets.
+
+    Returns whether the image is accepted as a tourism destination,
+    along with classification scores.
+
+    Use this endpoint to pre-validate images before uploading for search,
+    or to provide instant feedback in the mobile app camera flow.
+    """
+)
+async def image_validate(request: ImageValidateRequest):
+    """
+    Image validation-only endpoint.
+
+    Args:
+        request: ImageValidateRequest with base64 image
+
+    Returns:
+        ImageValidateResponse with validation result and scores
+    """
+    try:
+        from .services.image_validator import get_image_validator
+
+        validator = get_image_validator()
+        validation = validator.validate_base64_image(request.image_base64)
+
+        return ImageValidateResponse(
+            is_valid=validation.is_valid,
+            message=validation.message,
+            positive_score=round(validation.positive_score, 4),
+            negative_score=round(validation.negative_score, 4),
+            rejection_reason=validation.rejection_reason,
+        )
+
+    except Exception as e:
+        logger.error(f"Image validation endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1208,10 +1544,12 @@ async def submit_selection(request: SelectionRequest):
         or AdvancedSearchResponse for simple search selections.
     """
     try:
-        # The thread_id from the client is already user-scoped (returned by
-        # the generate endpoint).  Do NOT re-scope — that would create a
-        # double-prefixed ID that doesn't match the checkpoint.
+        # Re-apply user-scoping to match how /chat stored the checkpoint
+        # (`{user_id}_{sessionId}`). The mobile client sends the unscoped
+        # sessionId here.
         scoped_thread_id = request.thread_id
+        if request.user_id and not scoped_thread_id.startswith(f"{request.user_id}_"):
+            scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id) or request.thread_id
 
         logger.info(
             f"HITL selection received — thread={scoped_thread_id}, "
@@ -1394,10 +1732,16 @@ async def resume_weather(request: WeatherResumeRequest):
         TourPlanResponse with the re-optimised itinerary
     """
     try:
-        # The thread_id from the client is already user-scoped (returned by
-        # the generate endpoint).  Do NOT re-scope — that would create a
-        # double-prefixed ID that doesn't match the checkpoint.
+        # When the chat endpoint runs, it scopes the thread_id with user_id
+        # (`{user_id}_{sessionId}`).  The mobile client sends the unscoped
+        # sessionId here, so we re-apply the same scoping when user_id is
+        # present so the LangGraph checkpoint lookup succeeds.  If the
+        # thread_id already begins with the user_id, _build_user_thread_id
+        # is idempotent enough — but to be safe we only scope when the id
+        # does not already start with the user_id prefix.
         scoped_thread_id = request.thread_id
+        if request.user_id and not scoped_thread_id.startswith(f"{request.user_id}_"):
+            scoped_thread_id = _build_user_thread_id(request.user_id, request.thread_id) or request.thread_id
 
         logger.info(
             f"HITL weather resume — thread={scoped_thread_id}, "
@@ -2506,6 +2850,19 @@ async def health_check():
         components["chromadb"] = f"error: {str(e)}"
         health_monitor.report_failure(ServiceType.CHROMADB, str(e))
 
+    # Image Knowledge (CLIP + ChromaDB image_knowledge collection)
+    try:
+        from .graph.nodes.vision_retrieval import get_image_vectordb_service
+        img_service = get_image_vectordb_service()
+        img_service._ensure_initialized()
+        img_count = img_service._collection.count() if img_service._collection else 0
+        clip_loaded = img_service._clip_service.is_loaded if img_service._clip_service else False
+        components["image_knowledge"] = f"available ({img_count} images)"
+        components["clip_model"] = "loaded" if clip_loaded else "ready (lazy)"
+    except Exception as e:
+        components["image_knowledge"] = f"not_available: {str(e)[:80]}"
+        components["clip_model"] = "not_loaded"
+
     # Physics Engine
     try:
         engine = get_golden_hour_engine()
@@ -2682,7 +3039,19 @@ async def simple_crowd_prediction(request: SimpleCrowdPredictionRequest):
     """Simple crowd prediction - pass location name only."""
     try:
         now = datetime.now()
-        today = now.date()
+        
+        # Use provided date or default to today
+        if request.date:
+            try:
+                target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+                # Create a datetime at current time but on the target date
+                target_dt = datetime.combine(target_date, now.time())
+            except ValueError:
+                target_date = now.date()
+                target_dt = now
+        else:
+            target_date = now.date()
+            target_dt = now
         
         recommender = get_recommender()
         location = recommender.get_location_info(request.location_name)
@@ -2699,27 +3068,27 @@ async def simple_crowd_prediction(request: SimpleCrowdPredictionRequest):
         location_type = get_location_type_from_scores(location.preference_scores)
         
         event_sentinel = get_event_sentinel()
-        event_info = event_sentinel.get_event_info(now)
+        event_info = event_sentinel.get_event_info(target_dt)
         is_poya = event_info.get("is_poya", False)
         is_school_holiday = event_info.get("is_school_holiday", False)
         
         crowdcast = get_crowdcast()
         prediction = crowdcast.predict(
             location_type=location_type,
-            target_datetime=now,
+            target_datetime=target_dt,
             is_poya=is_poya,
             is_school_holiday=is_school_holiday
         )
         
         optimal_times = crowdcast.find_optimal_time(
-            location_type, now, is_poya=is_poya,
+            location_type, target_dt, is_poya=is_poya,
             is_school_holiday=is_school_holiday, preference="low_crowd"
         )
         
         return SimpleCrowdPredictionResponse(
             location_name=location.name,
             location_type=location_type,
-            date=today.isoformat(),
+            date=target_date.isoformat(),
             current_time=now.strftime("%H:%M"),
             crowd_level=prediction["crowd_level"],
             crowd_percentage=prediction["crowd_percentage"],
@@ -2757,7 +3126,15 @@ async def simple_golden_hour(request: SimpleGoldenHourRequest):
     """Simple golden hour - pass location name only."""
     try:
         now = datetime.now()
-        today = now.date()
+        
+        # Use provided date or default to today
+        if request.date:
+            try:
+                target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+            except ValueError:
+                target_date = now.date()
+        else:
+            target_date = now.date()
         
         golden_hour = get_golden_hour_agent()
         spot = golden_hour.PHOTOGRAPHY_SPOTS.get(request.location_name)
@@ -2791,13 +3168,13 @@ async def simple_golden_hour(request: SimpleGoldenHourRequest):
         if lat is None or lng is None:
             raise HTTPException(status_code=404, detail=f"Location not found: {request.location_name}")
         
-        sun_times = golden_hour.get_sun_times(today, lat, lng, location_name)
+        sun_times = golden_hour.get_sun_times(target_date, lat, lng, location_name)
         lighting = golden_hour.get_lighting_quality(now, lat, lng)
-        photo_times = golden_hour.get_optimal_photo_times(location_name, today)
+        photo_times = golden_hour.get_optimal_photo_times(location_name, target_date)
         
         return SimpleGoldenHourResponse(
             location_name=location_name,
-            date=today.isoformat(),
+            date=target_date.isoformat(),
             coordinates={"lat": lat, "lng": lng},
             sunrise=sun_times["sunrise"],
             sunset=sun_times["sunset"],

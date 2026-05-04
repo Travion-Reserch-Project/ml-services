@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+from typing import Optional
 from .model_service import ModelService
 from app.schemas import TransportPredictionRequest, TransportPredictionResponse
 
@@ -8,6 +9,19 @@ logger = logging.getLogger(__name__)
 
 class PredictionService:
     """Service for making transport predictions"""
+
+    @staticmethod
+    def _is_night_time(hour: Optional[int]) -> bool:
+        if hour is None:
+            return False
+        return hour >= 22 or hour <= 5
+
+    @staticmethod
+    def _resolve_car_label(all_scores: dict) -> Optional[str]:
+        for label in all_scores.keys():
+            if str(label).lower() == "car":
+                return label
+        return None
     
     @staticmethod
     def predict(request: TransportPredictionRequest) -> TransportPredictionResponse:
@@ -27,6 +41,8 @@ class PredictionService:
             raise ValueError("ML models not loaded. Models directory may be missing.")
         
         try:
+            logger.info("Predict request payload: %s", request.dict())
+
             # Encode categorical inputs
             weather_enc = ModelService.encode_weather(request.weather)
             area_enc = ModelService.encode_area(request.area_type)
@@ -49,10 +65,24 @@ class PredictionService:
             
             prediction_class = ModelService.get_transport_class(pred_idx)
             all_scores = ModelService.get_all_scores(probs)
+
+            # Business override: late-night rides under 40 km should prefer car.
+            if PredictionService._is_night_time(request.trip_hour) and request.distance_km < 40:
+                car_label = PredictionService._resolve_car_label(all_scores)
+                if car_label is not None:
+                    for label in list(all_scores.keys()):
+                        all_scores[label] = 1.0 if label == car_label else 0.0
+                    prediction_class = car_label
+                    confidence = 1.0
+                else:
+                    logger.warning("Night override active, but 'car' label not found in model classes")
+                    confidence = float(probs[pred_idx])
+            else:
+                confidence = float(probs[pred_idx])
             
             return TransportPredictionResponse(
                 prediction=prediction_class,
-                confidence=float(probs[pred_idx]),
+                confidence=confidence,
                 all_scores=all_scores
             )
             
